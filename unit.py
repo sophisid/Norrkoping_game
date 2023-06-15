@@ -29,6 +29,7 @@ game_master = None
 
 LED_CONTROL = 0xED
 PLAY_SOUND = 0x50
+BUTTON_STATE = 0xB0
 
 
 def print_error(*values: object,
@@ -171,9 +172,7 @@ def send_instructions(message_type, value):
     assert SER
 
     value = str(value)
-#    output("Sending: {}{:02}{}".format(messageType,len(value),value)) # Useful for debugging.
-    # Sends the TLV message to the Arduino as a string.
-    SER.write(f"{message_type}{len(value):02}{value}".encode())
+    SER.write(f"{chr(message_type&0xFF)}{len(value):02}{value}".encode())
 
 
 def convert_to_filename(sound_name):
@@ -213,10 +212,20 @@ def read_from_arduino(timeout=None):
         "value": ''
     }
 
+    type_read = SER.read(1)
+
     # Reads the messageType (first byte) and the message length (next two bytes).
     # Then stores them as integers.
-    message['type'] = int(str(SER.read(1), 'utf-8'))
-    message['length'] = int(str(SER.read(2), 'utf-8'))
+    if timeout is not None and len(type_read) == 1:
+        message['type'] = int(str(type_read, 'utf-8'))
+    else:
+        return None
+
+    length_read = SER.read(2)
+    if timeout is not None and len(length_read) == 2:
+        message['length'] = int(str(length_read, 'utf-8'))
+    else:
+        return None
 
     # Waits until all the bytes for the message have arrived.
     if SER.in_waiting < message['length']:
@@ -228,13 +237,31 @@ def read_from_arduino(timeout=None):
     return message
 
 
-def handle_button():
-    while True:
+def handle_button(server_queue: Queue, exit_event: threading.Event):
+    while not exit_event.is_set():
         # If there is a button press event, wait a few moments
         # and check if there has been a button release event.
         # If so, send button click. Otherwise, send button press
         # If there is a button release event, send button release
-        pass
+        state1 = read_from_arduino()
+        if state1:
+            if state1['type'] == BUTTON_STATE and state1['value'] == 'press':
+                state2 = read_from_arduino(0.7)
+                if state2 is not None:
+                    if state1['type'] == BUTTON_STATE and state1['value'] == 'release':
+                        request = {"message_type": "GameButtonControl",
+                                   "from": UNIT_ID, "to": game_master, "button_state": "clicked"}
+                        server_queue.put(request)
+                    else:
+                        print_error("Received the same button status twice")
+                else:
+                    request = {"message_type": "GameButtonControl",
+                               "from": UNIT_ID, "to": game_master, "button_state": "pressed"}
+                    server_queue.put(request)
+            elif state1['type'] == BUTTON_STATE and state1['value'] == 'release':
+                request = {"message_type": "GameButtonControl",
+                           "from": UNIT_ID, "to": game_master, "button_state": "released"}
+                server_queue.put(request)
 
 
 def main():
@@ -263,13 +290,23 @@ def main():
 
     led_queue = PriorityQueue()
     sound_queue = PriorityQueue()
+    server_queue = Queue()
+
+    exit_event = threading.Event()
 
     receiver = threading.Thread(
-        target=get_tasks, args=(led_queue, sound_queue))
-    led_handler = threading.Thread(target=handle_led, args=(led_queue,))
-    sound_handler = threading.Thread(target=handle_sound, args=(sound_queue,))
+        target=get_tasks, args=(led_queue, sound_queue, exit_event))
+    led_handler = threading.Thread(
+        target=handle_led, args=(led_queue, exit_event))
+    sound_handler = threading.Thread(
+        target=handle_sound, args=(sound_queue, exit_event))
+    server_handler = threading.Thread(
+        target=send_to_server, args=(server_queue, exit_event))
+    button_handler = threading.Thread(
+        target=handle_button, args=(server_queue, exit_event))
 
-    handlers = [receiver, led_handler, sound_handler]
+    handlers = [receiver, led_handler, sound_handler,
+                server_handler, button_handler]
 
     _ = [handler.run() for handler in handlers]
     _ = [handler.join() for handler in handlers]
