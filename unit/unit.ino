@@ -7,27 +7,33 @@
  * 1 x red LED
  * 1 x button / pressure plate
  */
+#include <SD.h>
+#define SD_ChipSelectPin 10
+#include <SPI.h>
+#include <TMRpcm.h>
 
-// Declaring variable to store LED instructions.
-byte type = -1;   // NULL;
-int length = -1; // NULL;
+TMRpcm tmrpcm;
 
-// TODO: Selecting the pins for different purpose.
-const int LED_RED = 11;
-const int LED_GREEN = 13;
-const int LED_BLUE = 12;
+    // Declaring variable to store LED instructions.
+byte type = 0; // NULL;
+int length = -1;    // NULL;
+
+const int LED_RED = 3;
+const int LED_GREEN = 5;
+const int LED_BLUE = 6;
 const int PIN_BUTTON = 10;
 
-const int PIN_SPEAKER = 8;
+const int PIN_SPEAKER = 9;
 
 const int LED_CONTROL = 0xED,
           PLAY_SOUND = 0x50,
           BUTTON_STATE = 0xB0;
 
-enum button_status {
-    PRESSED,
-    RELEASED
-} game_button;
+int buttonState;            // the current reading from the input pin
+int lastButtonState = LOW;  // the previous reading from the input pin
+
+unsigned long lastDebounceTime = 0;  // the last time the output pin was toggled
+unsigned long debounceDelay = 50;    // the debounce time; increase if the output flickers
 
 // This method sends measurements to the Raspberry pi over the serial
 // connection. The data is sent in a TLV structure. [Type][Length][Value].
@@ -69,6 +75,7 @@ void handleMessage(int type, char value[]) {
         // Adds a \0 to make the ascii-to-integer code to work.
         parsedValue[length] = '\0';
         // TODO: Write the code to play sound
+        tmrpcm.play(parsedValue);
     }
 }
 
@@ -77,7 +84,7 @@ void handleMessage(int type, char value[]) {
 // when all bytes have arrived.
 void receiveData() {
     // Checks if no message is in the pipe.
-    if (type == -1) {
+    if (type == 0) {
         // Checks if all bytes for the type and length has arrived.
         if (Serial.available() >= 3) {
             // Creates a byte array and reads the type.
@@ -94,7 +101,7 @@ void receiveData() {
     }
 
     // Checks if a message is in the pipe.
-    if (type != -1) // NULL)
+    if (type != 0) // NULL)
     {
         // Checks if all bytes for the message has arrived.
         if (Serial.available() >= length) {
@@ -119,7 +126,10 @@ void setup() {
     pinMode(LED_BLUE, OUTPUT);
     pinMode(PIN_BUTTON, INPUT);
 
-    game_button = RELEASED;
+    tmrpcm.speakerPin = PIN_SPEAKER;
+    if (!SD.begin(SD_ChipSelectPin)) {  // see if the card is present and can be initialized:
+        return;   // don't do anything more if not
+    }
 
     // Starting a serial connection.
     Serial.begin(9600);
@@ -130,6 +140,31 @@ void loop() {
     while (Serial.available())
         receiveData();
 
-    // Waiting 0.05 second.
-    delay(50);
+    int reading = digitalRead(PIN_BUTTON);
+
+    // check to see if you just pressed the button
+    // (i.e. the input went from LOW to HIGH), and you've waited long enough
+    // since the last press to ignore any noise:
+
+    // If the switch changed, due to noise or pressing:
+    if (reading != lastButtonState) {
+        // reset the debouncing timer
+        lastDebounceTime = millis();
+    }
+
+    if ((millis() - lastDebounceTime) > debounceDelay) {
+        // whatever the reading is at, it's been there for longer than the debounce
+        // delay, so take it as the actual current state:
+
+        // if the button state has changed:
+        if (reading != buttonState) {
+            buttonState = reading;
+            if (buttonState == HIGH)
+                sendData(BUTTON_STATE, "press");
+            else
+                sendData(BUTTON_STATE, "release");
+        }
+    }
+
+    delay(10);
 }
