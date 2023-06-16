@@ -115,23 +115,29 @@ def get_tasks(led_queue: PriorityQueue, sound_queue: PriorityQueue, exit_event: 
                         break
 
 
-def send_to_server(server_queue: Queue, exit_event: threading.Event):
+def send_request(request):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as clientsocket:
+        clientsocket.connect((HOST, PORT))
+
+        # Dumps the request dictionary as a JSON object.
+        # Sending the JSON message to the host. Note: The message must end with a |
+        # character and the String should be encoded to bytes with .encode().
+        clientsocket.send(f"{json.dumps(request)}|".encode())
+
+        # Reading input from the host.
+        receive = b''
+        while not receive.endswith(b"|"):
+            receive += clientsocket.recv(1024)
+
+        return json.loads(receive[:-1])
+
+
+def handle_server(server_queue: Queue, exit_event: threading.Event):
     ''' This handles the LED '''
     while not exit_event.is_set():
         if not server_queue.empty():
             request = server_queue.get()
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as clientsocket:
-                clientsocket.connect((HOST, PORT))
-
-                # Dumps the request dictionary as a JSON object.
-                # Sending the JSON message to the host. Note: The message must end with a |
-                # character and the String should be encoded to bytes with .encode().
-                clientsocket.send(f"{json.dumps(request)}|".encode())
-
-            # Reading input from the host.
-            receive = b''
-            while not receive.endswith(b"|"):
-                receive += clientsocket.recv(1024)
+            send_request(request)
 
 
 def parse_color(state, color):
@@ -267,7 +273,7 @@ def handle_button(server_queue: Queue, exit_event: threading.Event):
 def main():
     ''' The main function for the unit '''
 
-    global UNIT_ID, SER
+    global UNIT_ID, SER, game_master
 
     id_string = input("What is this unit's ID? ")
     try:
@@ -294,6 +300,20 @@ def main():
 
     exit_event = threading.Event()
 
+    request = {"message_type": "GameRegister",
+               "unit_id": UNIT_ID, "registration_type": "register"}
+
+    # Passes the request to a method that handles server connections.
+    server_queue.put(request)
+
+    while game_master is None:
+        request = {"message_type": "GameMasterControl",
+                   "unit_id": UNIT_ID, "sub_action": "LIST_GM"}
+        response = send_request(request)
+
+        if 'unit_id' in response:
+            game_master = response['unit_id']
+
     receiver = threading.Thread(
         target=get_tasks, args=(led_queue, sound_queue, exit_event))
     led_handler = threading.Thread(
@@ -301,7 +321,7 @@ def main():
     sound_handler = threading.Thread(
         target=handle_sound, args=(sound_queue, exit_event))
     server_handler = threading.Thread(
-        target=send_to_server, args=(server_queue, exit_event))
+        target=handle_server, args=(server_queue, exit_event))
     button_handler = threading.Thread(
         target=handle_button, args=(server_queue, exit_event))
 
