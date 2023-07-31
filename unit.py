@@ -10,7 +10,7 @@ from asyncio import PriorityQueue
 from websockets.client import connect
 from websockets.client import WebSocketClientProtocol
 
-from gpiozero import Button
+from gpiozero import Button, RGBLED
 
 
 async def button_led_control(queue: PriorityQueue):
@@ -26,7 +26,7 @@ async def sound_control(queue: PriorityQueue):
 
 
 async def dispatch_message(ws, message):
-    print(message)
+    pass
 
 
 async def register(ws):
@@ -53,15 +53,22 @@ def button_released(ws: WebSocketClientProtocol):
 
 async def main():
     ''' The main function for the unit '''
+
+    # Initialize the hardware interface
     button: Button = Button(26)
+    button_led: RGBLED = RGBLED(17, 27, 22)
+
+    button_led_queue = asyncio.PriorityQueue()
+    led_matrix_queue = asyncio.PriorityQueue()
+    sound_queue = asyncio.PriorityQueue()
 
     async with connect("ws://139.91.81.218:8001") as socket:
         button.when_pressed = lambda: button_pressed(socket)
         button.when_released = lambda: button_released(socket)
         await asyncio.gather(recv_server(socket),
-                             button_led_control(),
-                             led_matrix_control(),
-                             sound_control())
+                             button_led_control(button_led_queue),
+                             led_matrix_control(led_matrix_queue),
+                             sound_control(sound_queue))
 
 
 if __name__ == "__main__":
