@@ -5,18 +5,20 @@ components of the game, i.e. the button, its backlight and the LED matrix.
 '''
 
 import asyncio
-from asyncio import PriorityQueue
+from asyncio import PriorityQueue, Event
 
 from websockets.client import connect
 from websockets.client import WebSocketClientProtocol
 
 from gpiozero import Button, RGBLED
 
+from rpi_ws281x import PixelStrip
 
-async def button_led_control(queue: PriorityQueue):
 from enum import IntEnum
 from typing import Optional, Callable
 
+LED_COUNT = 16      # Number of LED pixels.
+LED_PIN = 21        # GPIO pin connected to the pixels (21 uses PCM).
 
 
 class controller():
@@ -46,14 +48,15 @@ class controller():
         self.state = controller.STATES.IDLE
 
 
+async def button_led_control(led: RGBLED, queue: PriorityQueue, exit: Event):
     command = await queue.get()
 
 
-async def led_matrix_control(queue: PriorityQueue):
+async def led_matrix_control(matrix: PixelStrip, queue: PriorityQueue, exit: Event):
     command = await queue.get()
 
 
-async def sound_control(queue: PriorityQueue):
+async def sound_control(queue: PriorityQueue, exit: Event):
     command = await queue.get()
 
 
@@ -65,7 +68,7 @@ async def register(ws):
     print("Open connection")
 
 
-async def recv_server(socket: WebSocketClientProtocol):
+async def recv_server(socket: WebSocketClientProtocol, exit: Event):
     while not socket.closed:
         message = await socket.recv()
         await dispatch_message(socket, message)
@@ -89,18 +92,25 @@ async def main():
     # Initialize the hardware interface
     button: Button = Button(26)
     button_led: RGBLED = RGBLED(17, 27, 22)
+    led_matrix = PixelStrip(LED_COUNT, LED_PIN)
 
     button_led_queue = asyncio.PriorityQueue()
     led_matrix_queue = asyncio.PriorityQueue()
     sound_queue = asyncio.PriorityQueue()
 
+    exit_event = asyncio.Event()
+
+    led_matrix.begin()
+
     async with connect("ws://139.91.81.218:8001") as socket:
         button.when_pressed = lambda: button_pressed(socket)
         button.when_released = lambda: button_released(socket)
-        await asyncio.gather(recv_server(socket),
-                             button_led_control(button_led_queue),
-                             led_matrix_control(led_matrix_queue),
-                             sound_control(sound_queue))
+        await asyncio.gather(recv_server(socket, exit_event),
+                             button_led_control(
+                                 button_led, button_led_queue, exit_event),
+                             led_matrix_control(
+                                 led_matrix, led_matrix_queue, exit_event),
+                             sound_control(sound_queue, exit_event))
 
 
 if __name__ == "__main__":
