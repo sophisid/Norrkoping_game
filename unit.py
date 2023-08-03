@@ -14,6 +14,38 @@ from gpiozero import Button, RGBLED
 
 
 async def button_led_control(queue: PriorityQueue):
+from enum import IntEnum
+from typing import Optional, Callable
+
+
+
+class controller():
+    STATES = IntEnum('States', ['IDLE', 'RUNNING'])
+
+    def __init__(self) -> None:
+        self.state = controller.STATES.IDLE
+        self.sleep_task: Optional[asyncio.Task] = None
+
+    async def _cancellable_sleep(self, delay: float, result=None):
+        await asyncio.sleep(delay, result)
+
+    async def start(self, control: Callable[..., None], *args) -> None:
+        self.state = controller.STATES.RUNNING
+
+        while self.state == controller.STATES.RUNNING:
+            control(args)
+            self.sleep_task = asyncio.create_task(self._cancellable_sleep(0.1))
+
+    def stop(self) -> None:
+        if self.sleep_task:
+            try:
+                self.sleep_task.cancel()
+            except asyncio.CancelledError:
+                pass
+
+        self.state = controller.STATES.IDLE
+
+
     command = await queue.get()
 
 
