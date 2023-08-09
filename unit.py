@@ -112,14 +112,27 @@ async def sound_control(queue: PriorityQueue[str], exit: Event):
     pass
 
 
+async def dispatch_message(message,
+                           button_led_queue: PriorityQueue[str],
+                           matrix_queue: PriorityQueue[str],
+                           sound_queue,
+                           exit: Event):
 async def register(ws):
     print("Open connection")
 
 
-async def recv_server(socket: WebSocketClientProtocol, exit: Event):
-    while not socket.closed:
+async def recv_server(socket: WebSocketClientProtocol,
+                      exit: Event,
+                      button_led_queue:PriorityQueue[str],
+                      matrix_queue: PriorityQueue[str],
+                      sound_queue:PriorityQueue[str]):
+    while not socket.closed and not exit.is_set():
         message = await socket.recv()
-        await dispatch_message(socket, message)
+        await dispatch_message(message,
+                               button_led_queue,
+                               matrix_queue,
+                               sound_queue,
+                               exit)
 
 
 async def send_server(socket: WebSocketClientProtocol, message: bytes):
@@ -153,7 +166,11 @@ async def main():
     async with connect("ws://139.91.81.218:8001") as socket:
         button.when_pressed = lambda: button_pressed(socket)
         button.when_released = lambda: button_released(socket)
-        await asyncio.gather(recv_server(socket, exit_event),
+        await asyncio.gather(recv_server(socket,
+                                         exit_event,
+                                         button_led_queue,
+                                         led_matrix_queue,
+                                         sound_queue),
                              button_led_control(
                                  button_led, button_led_queue, exit_event),
                              led_matrix_control(
