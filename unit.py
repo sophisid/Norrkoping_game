@@ -115,8 +115,7 @@ async def sound_control(queue: PriorityQueue[str], exit: Event):
 async def dispatch_message(message,
                            button_led_queue: PriorityQueue[str],
                            matrix_queue: PriorityQueue[str],
-                           sound_queue,
-                           exit: Event):
+                           sound_queue: PriorityQueue[str]):
 async def register(ws):
     print("Open connection")
 
@@ -131,8 +130,7 @@ async def recv_server(socket: WebSocketClientProtocol,
         await dispatch_message(message,
                                button_led_queue,
                                matrix_queue,
-                               sound_queue,
-                               exit)
+                               sound_queue)
 
 
 async def send_server(socket: WebSocketClientProtocol, message: bytes):
