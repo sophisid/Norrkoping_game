@@ -15,52 +15,100 @@ from gpiozero import Button, RGBLED
 from rpi_ws281x import PixelStrip
 
 from enum import IntEnum
-from typing import Optional, Callable
+from typing import Optional
+from abc import ABC, abstractmethod
 
 LED_COUNT = 16      # Number of LED pixels.
 LED_PIN = 21        # GPIO pin connected to the pixels (21 uses PCM).
 
 
-class controller():
+class Controller(ABC):
     STATES = IntEnum('States', ['IDLE', 'RUNNING'])
 
     def __init__(self) -> None:
-        self.state = controller.STATES.IDLE
-        self.sleep_task: Optional[asyncio.Task] = None
+        self.state = Controller.STATES.IDLE
+        self.task: Optional[asyncio.Task] = None
 
-    async def _cancellable_sleep(self, delay: float, result=None):
-        await asyncio.sleep(delay, result)
+    @abstractmethod
+    async def _run(self, *args):
+        raise NotImplementedError(
+            "You have to override this function in the derivative")
 
-    async def start(self, control: Callable[..., None], *args) -> None:
-        self.state = controller.STATES.RUNNING
+    def start(self, *args):
+        self.state = Controller.STATES.RUNNING
 
-        while self.state == controller.STATES.RUNNING:
-            control(args)
-            self.sleep_task = asyncio.create_task(self._cancellable_sleep(0.1))
+        self.task = asyncio.create_task(self._run(*args))
 
-    def stop(self) -> None:
-        if self.sleep_task:
+    async def stop(self) -> None:
+        if self.task:
             try:
-                self.sleep_task.cancel()
+                self.task.cancel()
+                await self.task
+
+                self.task = None
             except asyncio.CancelledError:
                 pass
 
-        self.state = controller.STATES.IDLE
+        self.state = Controller.STATES.IDLE
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, type, value, traceback):
+        await self.stop()
 
 
-async def button_led_control(led: RGBLED, queue: PriorityQueue, exit: Event):
-    command = await queue.get()
+class ButtonLEDController(Controller):
+    def __init__(self, led: RGBLED):
+        super().__init__()
+        self.i = 0
+        self.pattern = ["A", "B"]
+        self.led = led
+
+    async def _run(self, *args):
+        while self.state == Controller.STATES.RUNNING:
+            print(self.pattern[self.i])
+            self.i= (self.i+1) % len(self.pattern)
+            await asyncio.sleep(0.1)
+
+class MatrixLEDController(Controller):
+    def __init__(self, matrix: PixelStrip):
+        super().__init__()
+        self.i = 0
+        self.pattern = ["C", "D"]
+        self.matrix = matrix
+
+    async def _run(self, *args):
+        while self.state == Controller.STATES.RUNNING:
+            print(self.pattern[self.i])
+            self.i= (self.i+1) % len(self.pattern)
+            await asyncio.sleep(0.1)
 
 
-async def led_matrix_control(matrix: PixelStrip, queue: PriorityQueue, exit: Event):
-    command = await queue.get()
+async def button_led_control(led: RGBLED, queue: PriorityQueue[str], exit: Event):
+    async with ButtonLEDController(led) as controller:
+        while not exit.is_set():
+            command = await queue.get()
+
+            if command == "START":
+                controller.start()
+            elif command == "STOP":
+                await controller.stop()
 
 
-async def sound_control(queue: PriorityQueue, exit: Event):
-    command = await queue.get()
+async def led_matrix_control(matrix: PixelStrip, queue: PriorityQueue[str], exit: Event):
+    async with MatrixLEDController(matrix) as controller:
+        while not exit.is_set():
+            command = await queue.get()
+
+            if command == "START":
+                controller.start()
+            elif command == "STOP":
+                await controller.stop()
 
 
-async def dispatch_message(ws, message):
+
+async def sound_control(queue: PriorityQueue[str], exit: Event):
     pass
 
 
