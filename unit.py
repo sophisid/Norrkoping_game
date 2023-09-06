@@ -248,12 +248,14 @@ async def send_server(socket: WebSocketClientProtocol, message: bytes):
     await socket.send(message)
 
 
-def button_pressed(ws: WebSocketClientProtocol):
-    asyncio.run(send_server(ws, b"Button pressed"))
+def button_pressed(ws: WebSocketClientProtocol, eventloop: asyncio.AbstractEventLoop):
+    message = json.dumps({'type': "BUTTON_PRESSED"}).encode()
+    asyncio.run_coroutine_threadsafe(send_server(ws, message), eventloop)
 
 
-def button_released(ws: WebSocketClientProtocol):
-    asyncio.run(send_server(ws, b"Button released"))
+def button_released(ws: WebSocketClientProtocol, eventloop: asyncio.AbstractEventLoop):
+    message = json.dumps({'type': "BUTTON_RELEASED"}).encode()
+    asyncio.run_coroutine_threadsafe(send_server(ws, message), eventloop)
 
 
 async def main():
@@ -275,20 +277,28 @@ async def main():
 
     led_matrix.begin()
 
-    async with connect("ws://139.91.81.218:8001") as socket:
-        button.when_pressed = lambda: button_pressed(socket)
-        button.when_released = lambda: button_released(socket)
-        await asyncio.gather(recv_server(socket,
-                                         exit_event,
-                                         button_led_queue,
-                                         led_matrix_queue,
-                                         sound_queue),
-                             button_led_control(
-                                 button_led, button_led_queue, exit_event),
-                             led_matrix_control(
-                                 led_matrix, led_matrix_queue, exit_event),
-                             sound_control(sound_queue, exit_event))
+    loop = asyncio.get_event_loop()
 
+    async with connect("ws://139.91.68.15:8001") as socket:
+        try:
+            button.when_pressed = lambda: button_pressed(socket, loop)
+            button.when_released = lambda: button_released(socket, loop)
+
+            await register(socket)
+
+            await asyncio.gather(recv_server(socket,
+                                             exit_event,
+                                             button_led_queue,
+                                             led_matrix_queue,
+                                             sound_queue),
+                                 button_led_control(
+                button_led, button_led_queue, exit_event),
+                led_matrix_control(
+                led_matrix, led_matrix_queue, exit_event),
+                sound_control(sound_queue, exit_event),
+                return_exceptions=True)
+        finally:
+            await unregister(socket)
 
 if __name__ == "__main__":
     asyncio.run(main())
