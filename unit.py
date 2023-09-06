@@ -237,11 +237,20 @@ async def recv_server(socket: WebSocketClientProtocol,
                       sound_queue: PriorityQueue[tuple[float, dict[str, str]]]):
     i = 0
     while not socket.closed and not exit.is_set():
-        message = await socket.recv()
-        await dispatch_message(message,
-                               button_led_queue,
-                               matrix_queue,
-                               sound_queue)
+        message: dict[str, str] = json.loads(await socket.recv())
+        print(message)
+        if message['type'] == "BUTTON_LED":
+            await button_led_queue.put((i, message))
+        elif message['type'] == "MATRIX_LED":
+            await matrix_queue.put((i, message))
+        elif message['type'] == "SOUND":
+            await sound_queue.put((i, message))
+        elif message['type'] == "DIE":
+            exit.set()
+            await button_led_queue.put((i, message))
+            await matrix_queue.put((i, message))
+            await sound_queue.put((i, message))
+        i += 1
 
 
 async def send_server(socket: WebSocketClientProtocol, message: bytes):
