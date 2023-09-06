@@ -6,13 +6,18 @@ components of the game, i.e. the button, its backlight and the LED matrix.
 
 import asyncio
 from asyncio import PriorityQueue, Event
+from itertools import cycle
+import json
 
 from websockets.client import connect
 from websockets.client import WebSocketClientProtocol
 
 from gpiozero import Button, RGBLED
+from colorzero import Color, Hue
 
 from rpi_ws281x import PixelStrip
+
+import pygame
 
 from enum import IntEnum
 from typing import Optional
