@@ -81,10 +81,16 @@ class Unit:
 
 
 class Game:
-    STATES = IntEnum('States', ['PreGame', 'Game', 'PostGame'])
+    STATES = IntEnum(
+        'States', ['NoUnits',
+                   'PreGameSingle',
+                   'PreGameMultiple',
+                   'Playing',
+                   'PlayingAllReleased',
+                   'WaitRelease'])
 
     def __init__(self) -> None:
-        self.state = Game.STATES.PreGame
+        self._state = Game.STATES.NoUnits
         self.ACTIVE: dict[int, Unit] = {}
 
         self.previous_correct: set[int] = set()
@@ -95,18 +101,26 @@ class Game:
         self.pressed_units: set[Unit] = set()
 
         self._button_pressed_callbacks = {
-            Game.STATES.PreGame: self._button_pressed_PreGame,
-            Game.STATES.Game: self._button_pressed_Game,
-            Game.STATES.PostGame: self._button_pressed_PostGame
+            Game.STATES.PreGameSingle: self._button_pressed_PreGameSingle,
+            Game.STATES.PreGameMultiple: self._button_pressed_PreGameMultiple,
+            Game.STATES.Playing: self._button_pressed_Playing,
+            Game.STATES.PlayingAllReleased: self._button_pressed_PlayingAllReleased,
+            Game.STATES.WaitRelease: self._button_pressed_WaitRelease
         }
 
         self._button_released_callbacks = {
-            Game.STATES.PreGame: self._button_released_PreGame,
-            Game.STATES.Game: self._button_released_Game,
-            Game.STATES.PostGame: self._button_released_PostGame
+            Game.STATES.PreGameSingle: self._button_released_PreGameSingle,
+            Game.STATES.PreGameMultiple: self._button_released_PreGameMultiple,
+            Game.STATES.Playing: self._button_released_Playing,
+            Game.STATES.WaitRelease: self._button_released_WaitRelease
         }
 
-        self._control_task = asyncio.create_task(self._control())
+        self._register_callbacks = {
+            Game.STATES.NoUnits: self._register_NoUnits,
+            Game.STATES.PreGameSingle: self._register_PreGameSingle
+        }
+
+        self._control_task: Optional[asyncio.Task] = None
 
     def button_pressed(self, unit_id: int):
         if unit_id in self.ACTIVE:
