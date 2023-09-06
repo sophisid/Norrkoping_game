@@ -273,7 +273,7 @@ async def main():
     # Initialize the hardware interface
     button: Button = Button(26)
     button_led: RGBLED = RGBLED(17, 27, 22)
-    led_matrix = PixelStrip(LED_COUNT, LED_PIN)
+    led_matrix: PixelStrip = PixelStrip(LED_COUNT, LED_PIN)
 
     button_led_queue: PriorityQueue[tuple[float,
                                           dict[str, str]]] = asyncio.PriorityQueue()
