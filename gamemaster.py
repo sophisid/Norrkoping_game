@@ -21,7 +21,7 @@ class Unit:
 
         self._send_task = asyncio.create_task(self._send())
 
-    def send(self, data: dict[str, str]):
+    def send(self, data: dict[str, Any]):
         self.queue.put_nowait(json.dumps(data).encode())
 
     async def _send(self):
@@ -29,11 +29,54 @@ class Unit:
             message = await self.queue.get()
             await self.ws.send(message)
 
+    def start_button_led(self, pattern: Union[str, tuple[int, int, int]]):
+        self.send({'type': 'BUTTON_LED', 'value': 'START', 'pattern': pattern})
+
+    def start_matrix(self, pattern: Union[str, tuple[int, int, int]]):
+        self.send({'type': 'MATRIX_LED', 'value': 'START', 'pattern': pattern})
+
+    def play_sound(self, filename: str):
+        self.send({'type': 'SOUND', 'value': 'START', 'filename': filename})
+
+    def stop_button_led(self):
+        self.send({'type': 'BUTTON_LED', 'value': 'OFF'})
+
+    def stop_matrix(self):
+        self.send({'type': 'MATRIX_LED', 'value': 'OFF'})
+
+    def stop_sound(self):
+        self.send({'type': 'SOUND', 'value': 'STOP'})
+
+    def win(self):
+        self.start_button_led("colorscroll")
+        self.start_matrix("colorscroll")
+        self.play_sound("win.wav")
+
+    def lose(self):
+        self.start_button_led("flash_red")
+        self.start_matrix("swipe_red")
+        self.play_sound("lose.wav")
+
+    def correct_pressed(self):
+        self.start_button_led((0, 200, 0))
+        self.start_matrix((0, 128, 0))
+        self.play_sound("chirping.wav")
+
+    def correct(self):
+        self.start_button_led((0, 255, 0))
+        self.start_matrix((0, 255, 0))
+
+    def wrong(self):
+        self.start_button_led((255, 0, 0))
+        self.start_matrix((180, 0, 0))
+
+    def stop_all(self):
+        self.stop_button_led()
+        self.stop_matrix()
+        self.stop_sound()
+
     def __del__(self):
-        try:
-            self._send_task.cancel()
-        except asyncio.CancelledError:
-            pass
+        self._send_task.cancel()
 
 
 class Game:
