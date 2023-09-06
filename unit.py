@@ -171,46 +171,64 @@ class SoundController(Controller):
     off = stop
 
 
-async def button_led_control(led: RGBLED, queue: PriorityQueue[str], exit: Event):
+async def button_led_control(led: RGBLED, queue: PriorityQueue[tuple[float, dict[str, str]]], exit: Event):
     async with ButtonLEDController(led) as controller:
         while not exit.is_set():
-            command = await queue.get()
+            offset, command = await queue.get()
 
-            if command == "START":
-                controller.start()
-            elif command == "STOP":
+            if command['type'] == 'DIE':
                 await controller.stop()
+                break
+            elif command['value'] == "START":
+                await controller.start(command['pattern'])
+            elif command['value'] == "STOP":
+                await controller.stop()
+            elif command['value'] == "OFF":
+                await controller.off()
 
 
-async def led_matrix_control(matrix: PixelStrip, queue: PriorityQueue[str], exit: Event):
+async def led_matrix_control(matrix: PixelStrip, queue: PriorityQueue[tuple[float, dict[str, str]]], exit: Event):
     async with MatrixLEDController(matrix) as controller:
         while not exit.is_set():
-            command = await queue.get()
+            offset, command = await queue.get()
 
-            if command == "START":
-                controller.start()
-            elif command == "STOP":
+            if command['type'] == 'DIE':
+                await controller.stop()
+                break
+            elif command['value'] == "START":
+                await controller.start(command['pattern'])
+            elif command['value'] == "OFF":
                 await controller.stop()
 
+
+async def sound_control(queue: PriorityQueue[tuple[float, dict[str, str]]], exit: Event):
+    async with SoundController() as controller:
+        while not exit.is_set():
+            offset, command = await queue.get()
+
+            if command['type'] == 'DIE':
+                await controller.stop()
+                break
+            elif command['value'] == "START":
+                await controller.start(command['filename'])
+            elif command['value'] == "STOP":
+                await controller.stop()
 
 
 async def sound_control(queue: PriorityQueue[str], exit: Event):
     pass
 
 
-async def dispatch_message(message,
-                           button_led_queue: PriorityQueue[str],
-                           matrix_queue: PriorityQueue[str],
-                           sound_queue: PriorityQueue[str]):
 async def register(ws):
     print("Open connection")
 
 
 async def recv_server(socket: WebSocketClientProtocol,
                       exit: Event,
-                      button_led_queue:PriorityQueue[str],
-                      matrix_queue: PriorityQueue[str],
-                      sound_queue:PriorityQueue[str]):
+                      button_led_queue: PriorityQueue[tuple[float, dict[str, str]]],
+                      matrix_queue: PriorityQueue[tuple[float, dict[str, str]]],
+                      sound_queue: PriorityQueue[tuple[float, dict[str, str]]]):
+    i = 0
     while not socket.closed and not exit.is_set():
         message = await socket.recv()
         await dispatch_message(message,
@@ -239,9 +257,12 @@ async def main():
     button_led: RGBLED = RGBLED(17, 27, 22)
     led_matrix = PixelStrip(LED_COUNT, LED_PIN)
 
-    button_led_queue = asyncio.PriorityQueue()
-    led_matrix_queue = asyncio.PriorityQueue()
-    sound_queue = asyncio.PriorityQueue()
+    button_led_queue: PriorityQueue[tuple[float,
+                                          dict[str, str]]] = asyncio.PriorityQueue()
+    led_matrix_queue: PriorityQueue[tuple[float,
+                                          dict[str, str]]] = asyncio.PriorityQueue()
+    sound_queue: PriorityQueue[tuple[float,
+                                     dict[str, str]]] = asyncio.PriorityQueue()
 
     exit_event = asyncio.Event()
 
