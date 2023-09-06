@@ -4,9 +4,10 @@ from functools import partialmethod
 import functools
 import json
 import random
-from typing import Optional
+from typing import Any, Optional, Union
 
 from websockets.server import serve
+from websockets.exceptions import ConnectionClosedError
 
 from websockets.server import WebSocketServerProtocol
 
