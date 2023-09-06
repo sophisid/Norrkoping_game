@@ -39,7 +39,8 @@ class Controller(ABC):
         raise NotImplementedError(
             "You have to override this function in the derivative")
 
-    def start(self, *args):
+    async def start(self, *args):
+        await self.stop()
         self.state = Controller.STATES.RUNNING
 
         self.task = asyncio.create_task(self._run(*args))
