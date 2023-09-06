@@ -447,7 +447,7 @@ async def handler(websocket: WebSocketServerProtocol, game: Game):
 
 async def main():
     game = Game()
-    async with serve(functools.partial(handler, game=game), "", 8001):
+    async with serve(lambda x: handler(x, game), "", 8001):
         await asyncio.Future()  # run forever
 
 
