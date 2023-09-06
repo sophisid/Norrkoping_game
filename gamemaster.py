@@ -419,24 +419,30 @@ class Game:
 
 
 async def handler(websocket: WebSocketServerProtocol, game: Game):
-    async for msg in websocket:
-        decoded = json.loads(msg)
-        unit_id = None
+    unit_id = None
+    try:
+        async for msg in websocket:
+            decoded = json.loads(msg)
 
-        print(decoded)
-        if decoded['type'] == 'REGISTER':
-            unit_id = int(decoded['id'], 16)
-            game.register(unit_id, Unit(websocket, unit_id))
-        elif decoded['type'] == 'BUTTON_PRESSED':
-            if unit_id is not None:
-                game.button_pressed(unit_id)
-        elif decoded['type'] == 'BUTTON_RELEASED':
-            if unit_id is not None:
-                game.button_pressed(unit_id)
-        elif decoded['type'] == 'UNREGISTER':
-            if unit_id is not None:
-                game.unregister(unit_id)
-                break
+            if decoded['type'] == 'REGISTER':
+                unit_id = int(decoded['id'], 16)
+                game.register(unit_id, Unit(websocket, unit_id))
+            elif decoded['type'] == 'BUTTON_PRESSED':
+                print("Handle button press")
+                if unit_id is not None:
+                    game.button_pressed(unit_id)
+            elif decoded['type'] == 'BUTTON_RELEASED':
+                print("Handle button release")
+                if unit_id is not None:
+                    game.button_released(unit_id)
+            elif decoded['type'] == 'UNREGISTER':
+                if unit_id is not None:
+                    game.unregister(unit_id)
+                    break
+    except ConnectionClosedError as e:
+        if unit_id is not None:
+            print("Unit disconnected with", e)
+            game.unregister(unit_id)
 
 
 async def main():
