@@ -215,12 +215,19 @@ async def sound_control(queue: PriorityQueue[tuple[float, dict[str, str]]], exit
                 await controller.stop()
 
 
-async def sound_control(queue: PriorityQueue[str], exit: Event):
-    pass
+def get_cpu_id():
+    with open("unit_id.txt") as unit_id:
+        return unit_id.read()
 
 
 async def register(ws):
-    print("Open connection")
+    message = json.dumps({'type': "REGISTER", "id": get_cpu_id()}).encode()
+    await send_server(ws, message)
+
+
+async def unregister(ws):
+    message = json.dumps({'type': "UNREGISTER"}).encode()
+    await send_server(ws, message)
 
 
 async def recv_server(socket: WebSocketClientProtocol,
