@@ -122,6 +122,15 @@ class Game:
 
         self._control_task: Optional[asyncio.Task] = None
 
+    @property
+    def state(self):
+        return self._state
+
+    @state.setter
+    def state(self, next_state: STATES):
+        print(f"Transition {self.state.name}->{next_state.name}")
+        self._state = next_state
+
     def button_pressed(self, unit_id: int):
         if unit_id in self.ACTIVE:
             unit = self.ACTIVE[unit_id]
