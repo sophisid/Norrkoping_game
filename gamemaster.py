@@ -152,9 +152,12 @@ class Game:
     def register(self, unit_id: int, unit: Unit):
         self.ACTIVE[unit_id] = unit
 
-        unit.send({'type': 'BUTTON_LED', 'value': 'STOP'})
-        unit.send({'type': 'MATRIX_LED', 'value': 'STOP'})
-        unit.send({'type': 'SOUND', 'value': 'STOP'})
+        if self.state in (Game.STATES.NoUnits, Game.STATES.PreGameSingle):
+            self._register_callbacks[self.state](unit)
+
+        unit.stop_button_led()
+        unit.stop_matrix()
+        unit.stop_sound()
 
     def unregister(self, unit_id: int):
         self.ACTIVE.pop(unit_id, None)
@@ -169,65 +172,182 @@ class Game:
         if unit_id == self.wrong:
             self._next_wrong()
 
-    def _button_pressed_PreGame(self, unit: Unit):
+        if len(self.ACTIVE) == 0:
+            assert (self._control_task is not None)
+            self._control_task.cancel()
+            self._control_task = None
+
+            self.state = Game.STATES.NoUnits
+        elif self.state == Game.STATES.PreGameMultiple and len(self.ACTIVE) == 1:
+            assert (self._control_task is not None)
+            self._control_task.cancel()
+            self._control_task = asyncio.create_task(
+                self._control_PreGameSingle())
+
+            self.state = Game.STATES.PreGameSingle
+        elif self.state == Game.STATES.Playing and len(self.ACTIVE) == 1:
+            assert (self._control_task is not None)
+            self._control_task.cancel()
+            self._control_task = asyncio.create_task(
+                self._control_WaitRelease())
+
+            self.state = Game.STATES.WaitRelease
+
+    def _register_NoUnits(self, unit: Unit):
+        assert (self._control_task is None)
+        self._control_task = asyncio.create_task(self._control_PreGameSingle())
+
+        self.state = Game.STATES.PreGameSingle
+
+    def _register_PreGameSingle(self, unit: Unit):
+        if len(self.ACTIVE) > 1:
+            assert (self._control_task is not None)
+            self._control_task.cancel()
+            self._control_task = asyncio.create_task(
+                self._control_PreGameMultiple())
+
+            self.state = Game.STATES.PreGameMultiple
+        elif len(self.ACTIVE) == 1:
+            assert (self._control_task is not None)
+            self._control_task.cancel()
+            self._control_task = asyncio.create_task(
+                self._control_PreGameSingle())
+
+            self.state = Game.STATES.PreGameSingle
+
+    def _button_pressed_PreGameSingle(self, unit: Unit):
+        unit.win()
+
+        assert (self._control_task is not None)
+        self._control_task.cancel()
+        self._control_task = asyncio.create_task(self._control_WaitRelease())
+
+        self.state = Game.STATES.WaitRelease
+
+    def _button_pressed_PreGameMultiple(self, unit: Unit):
         if unit.unit_id == self.correct:
-            unit.send({'type': 'BUTTON_LED', 'value': 'STOP'})
-            unit.send({'type': 'MATRIX_LED', 'value': 'STOP'})
-            unit.send({'type': 'SOUND', 'value': 'STOP'})
+            unit.stop_all()
 
             self._setup_game()
 
             self._next_correct()
             self._next_wrong()
 
-            if self.unit_list:
-                self.state = Game.STATES.Game
-            else:
-                self.state = Game.STATES.PostGame
+            assert (self._control_task is not None)
+            self._control_task.cancel()
+            self._control_task = asyncio.create_task(self._control_Playing())
 
-    def _button_pressed_Game(self, unit: Unit):
+            self.state = Game.STATES.Playing
+
+    def _button_pressed_Playing(self, unit: Unit):
         if unit.unit_id in self.previous_correct:
-            unit.send({'type': 'BUTTON_LED', 'value': 'START'})
-            unit.send({'type': 'MATRIX_LED', 'value': 'START'})
-            unit.send({'type': 'SOUND', 'value': 'START'})
+            unit.correct_pressed()
         elif unit.unit_id == self.wrong:
-            unit.send({'type': 'SOUND', 'value': 'START'})
-
             for pressed_unit in self.pressed_units:
-                pressed_unit.send({'type': 'SOUND', 'value': 'START'})
+                pressed_unit.lose()
+
+            assert (self._control_task is not None)
+            self._control_task.cancel()
+            self._control_task = asyncio.create_task(
+                self._control_WaitRelease())
+
+            self.state = Game.STATES.WaitRelease
         elif unit.unit_id == self.correct:
-            unit.send({'type': 'BUTTON_LED', 'value': 'STOP'})
-            unit.send({'type': 'MATRIX_LED', 'value': 'STOP'})
-            unit.send({'type': 'SOUND', 'value': 'STOP'})
+            unit.correct_pressed()
 
             self.previous_correct.add(unit.unit_id)
 
             self._next_correct()
             self._next_wrong()
 
-    def _button_pressed_PostGame(self, unit: Unit):
-        unit.send({'type': 'BUTTON_LED', 'value': 'START'})
+            if not self.unit_list:
+                assert (self._control_task is not None)
+                self._control_task.cancel()
+                self._control_task = asyncio.create_task(
+                    self._control_WaitRelease())
 
-    def _button_released_PreGame(self, unit: Unit):
+                self.state = Game.STATES.WaitRelease
+
+    def _button_pressed_PlayingAllReleased(self, unit: Unit):
+        if unit.unit_id in self.previous_correct:
+            unit.correct_pressed()
+
+            self.state = Game.STATES.Playing
+        elif unit.unit_id == self.wrong:
+            for pressed_unit in self.pressed_units:
+                pressed_unit.lose()
+
+            assert (self._control_task is not None)
+            self._control_task.cancel()
+            self._control_task = asyncio.create_task(
+                self._control_WaitRelease())
+
+            self.state = Game.STATES.WaitRelease
+        elif unit.unit_id == self.correct:
+            unit.correct_pressed()
+
+            self.previous_correct.add(unit.unit_id)
+
+            self._next_correct()
+            self._next_wrong()
+
+            if not self.unit_list:
+                assert (self._control_task is not None)
+                self._control_task.cancel()
+                self._control_task = asyncio.create_task(
+                    self._control_WaitRelease())
+
+                self.state = Game.STATES.WaitRelease
+            else:
+                assert (self._control_task is not None)
+                self._control_task.cancel()
+                self._control_task = asyncio.create_task(
+                    self._control_Playing())
+
+                self.state = Game.STATES.Playing
+
+    def _button_pressed_WaitRelease(self, unit: Unit):
+        unit.start_button_led((0xFF, 0xA5, 0x00))
+
+    def _button_released_PreGameSingle(self, unit: Unit):
         pass
+    _button_released_PreGameMultiple = _button_pressed_PreGameSingle
 
-    def _button_released_Game(self, unit: Unit):
-        unit.send({'type': 'BUTTON_LED', 'value': 'STOP'})
-        unit.send({'type': 'MATRIX_LED', 'value': 'STOP'})
-        unit.send({'type': 'SOUND', 'value': 'STOP'})
+    def _button_released_Playing(self, unit: Unit):
+        unit.stop_button_led()
+        unit.stop_matrix()
+        unit.stop_sound()
 
-        if not self.unit_list:
-            self.state = Game.STATES.PostGame
+        if not self.pressed_units:
+            assert (self._control_task is not None)
+            self._control_task.cancel()
+            self._control_task = asyncio.create_task(
+                self._control_PlayingAllReleased())
 
-    def _button_released_PostGame(self, unit: Unit):
-        unit.send({'type': 'BUTTON_LED', 'value': 'STOP'})
-        unit.send({'type': 'MATRIX_LED', 'value': 'STOP'})
-        unit.send({'type': 'SOUND', 'value': 'STOP'})
+            self.state = Game.STATES.PlayingAllReleased
+
+    def _button_released_WaitRelease(self, unit: Unit):
+        unit.stop_button_led()
+        unit.stop_matrix()
+        unit.stop_sound()
 
         self.previous_correct.discard(unit.unit_id)
 
         if not self.pressed_units:
-            self._finish_game()
+            if len(self.ACTIVE) > 1:
+                assert (self._control_task is not None)
+                self._control_task.cancel()
+                self._control_task = asyncio.create_task(
+                    self._control_PreGameMultiple())
+
+                self.state = Game.STATES.PreGameMultiple
+            elif len(self.ACTIVE) == 1:
+                assert (self._control_task is not None)
+                self._control_task.cancel()
+                self._control_task = asyncio.create_task(
+                    self._control_PreGameSingle())
+
+                self.state = Game.STATES.PreGameSingle
 
     def _setup_game(self):
         self.unit_list = list(self.ACTIVE.keys())
