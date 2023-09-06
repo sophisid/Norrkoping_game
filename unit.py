@@ -57,11 +57,15 @@ class Controller(ABC):
 
         self.state = Controller.STATES.IDLE
 
+    @abstractmethod
+    async def off(self):
+        ...
+
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, type, value, traceback):
-        await self.stop()
+        await self.off()
 
 
 class ButtonLEDController(Controller):
