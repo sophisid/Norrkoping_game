@@ -72,27 +72,103 @@ class ButtonLEDController(Controller):
     def __init__(self, led: RGBLED):
         super().__init__()
         self.i = 0
-        self.pattern = ["A", "B"]
         self.led = led
 
-    async def _run(self, *args):
-        while self.state == Controller.STATES.RUNNING:
-            print(self.pattern[self.i])
-            self.i= (self.i+1) % len(self.pattern)
-            await asyncio.sleep(0.1)
+    async def _run(self, *args, **kwargs):
+        if isinstance(args[0], list):
+            pattern = tuple(args[0][i]/255 for i in range(3))
+            self.led.color = pattern
+        elif args[0] == 'colorscroll':
+            if self.led.color in (Color(0, 0, 0), Color(1, 1, 1)):
+                self.led.color = Color(1, 0, 0)
+            color = Color(self.led.color)
+            while self.state == Controller.STATES.RUNNING:
+                self.led.color = color
+
+                color += Hue(deg=3.6)
+                await asyncio.sleep(0.04)
+        elif args[0] == 'flash_red':
+            self.led.blink(0.1, 0.1, on_color=(1, 0, 0))
+        elif args[0] == 'flash_blue':
+            self.led.blink(0.1, 0.1, on_color=(0, 0, 1))
+
+    async def off(self):
+        await self.stop()
+        self.led.off()
+
 
 class MatrixLEDController(Controller):
     def __init__(self, matrix: PixelStrip):
         super().__init__()
-        self.i = 0
-        self.pattern = ["C", "D"]
         self.matrix = matrix
 
     async def _run(self, *args):
+        if isinstance(args[0], list):
+            for i in range(self.matrix.numPixels()):
+                self.matrix.setPixelColorRGB(i, *args[0])
+            self.matrix.show()
+        elif args[0] == 'colorscroll':
+            color = Color.from_hsv(h=1/3, s=1, v=1)
+            while self.state == Controller.STATES.RUNNING:
+                for i in range(self.matrix.numPixels()):
+                    self.matrix.setPixelColorRGB(
+                        i,
+                        int(color.rgb[0]*255),
+                        int(color.rgb[1]*255),
+                        int(color.rgb[2]*255))
+                self.matrix.show()
+
+                color += Hue(deg=3.6)
+                await asyncio.sleep(0.04)
+        elif args[0] == 'swipe_red':
+            pattern: list[tuple[int, int, int]] = [(255, 0, 0), (0, 0, 0)]
+
+            loop = cycle(pattern)
+
+            while self.state == Controller.STATES.RUNNING:
+                color = next(loop)
+                for led_index in range(self.matrix.numPixels()):
+                    self.matrix.setPixelColorRGB(led_index, *color)
+                self.matrix.show()
+
+                await asyncio.sleep(0.1)
+
+    async def off(self):
+        await self.stop()
+        for i in range(self.matrix.numPixels()):
+            self.matrix.setPixelColorRGB(i, 0, 0, 0)
+
+        self.matrix.show()
+
+
+class SoundController(Controller):
+    STATES = IntEnum('States', ['IDLE', 'PLAYING'])
+
+    def __init__(self):
+        super().__init__()
+        pygame.mixer.init()
+        self.sound: Optional[pygame.mixer.Sound] = None
+        self.sound_state = SoundController.STATES.IDLE
+
+    async def _run(self, *args):
+        self.sound = pygame.mixer.Sound(args[0])
+        self.sound.play(loops=-1)
+
+        pattern = tuple(0.1*i for i in range(int(1/0.1+1)))
+        pattern += pattern[-2::-1]
+
+        volume_loop = cycle(pattern)
+
         while self.state == Controller.STATES.RUNNING:
-            print(self.pattern[self.i])
-            self.i= (self.i+1) % len(self.pattern)
+            self.sound.set_volume(next(volume_loop))
             await asyncio.sleep(0.1)
+
+    async def stop(self):
+        if self.sound:
+            self.sound.stop()
+            self.sound = None
+        await super().stop()
+    off = stop
 
 
 async def button_led_control(led: RGBLED, queue: PriorityQueue[str], exit: Event):
