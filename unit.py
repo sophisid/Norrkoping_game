@@ -143,13 +143,10 @@ class MatrixLEDController(Controller):
 
 
 class SoundController(Controller):
-    STATES = IntEnum('States', ['IDLE', 'PLAYING'])
-
     def __init__(self):
         super().__init__()
         pygame.mixer.init()
         self.sound: Optional[pygame.mixer.Sound] = None
-        self.sound_state = SoundController.STATES.IDLE
 
     async def _run(self, *args):
         self.sound = pygame.mixer.Sound(args[0])
