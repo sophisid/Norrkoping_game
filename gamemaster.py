@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timedelta
 from enum import IntEnum
 from functools import partialmethod
 import functools
@@ -30,51 +31,57 @@ class Unit:
             message = await self.queue.get()
             await self.ws.send(message)
 
-    def start_button_led(self, pattern: Union[str, tuple[int, int, int]]):
-        self.send({'type': 'BUTTON_LED', 'value': 'START', 'pattern': pattern})
+    def start_button_led(self, pattern: Union[str, tuple[int, int, int]], at: datetime):
+        self.send({'type': 'BUTTON_LED', 'value': 'START', 'pattern': pattern,
+                  'at': at.strftime("%Y-%m-%d %H:%M:%S.%f")})
 
-    def start_matrix(self, pattern: Union[str, tuple[int, int, int]]):
-        self.send({'type': 'MATRIX_LED', 'value': 'START', 'pattern': pattern})
+    def start_matrix(self, pattern: Union[str, tuple[int, int, int]], at: datetime):
+        self.send({'type': 'MATRIX_LED', 'value': 'START', 'pattern': pattern,
+                  'at': at.strftime("%Y-%m-%d %H:%M:%S.%f")})
 
-    def play_sound(self, filename: str):
-        self.send({'type': 'SOUND', 'value': 'START', 'filename': filename})
+    def play_sound(self, filename: str, at: datetime):
+        self.send({'type': 'SOUND', 'value': 'START', 'filename': filename,
+                  'at': at.strftime("%Y-%m-%d %H:%M:%S.%f")})
 
-    def stop_button_led(self):
-        self.send({'type': 'BUTTON_LED', 'value': 'OFF'})
+    def stop_button_led(self, at: datetime):
+        self.send({'type': 'BUTTON_LED', 'value': 'OFF',
+                  'at': at.strftime("%Y-%m-%d %H:%M:%S.%f")})
 
-    def stop_matrix(self):
-        self.send({'type': 'MATRIX_LED', 'value': 'OFF'})
+    def stop_matrix(self, at: datetime):
+        self.send({'type': 'MATRIX_LED', 'value': 'OFF',
+                  'at': at.strftime("%Y-%m-%d %H:%M:%S.%f")})
 
-    def stop_sound(self):
-        self.send({'type': 'SOUND', 'value': 'STOP'})
+    def stop_sound(self, at: datetime):
+        self.send({'type': 'SOUND', 'value': 'STOP',
+                  'at': at.strftime("%Y-%m-%d %H:%M:%S.%f")})
 
-    def win(self):
-        self.start_button_led("colorscroll")
-        self.start_matrix("colorscroll")
-        self.play_sound("win.wav")
+    def win(self, at: datetime):
+        self.start_button_led("colorscroll", at)
+        self.start_matrix("colorscroll", at)
+        self.play_sound("win.wav", at)
 
-    def lose(self):
-        self.start_button_led("flash_red")
-        self.start_matrix("swipe_red")
-        self.play_sound("lose.wav")
+    def lose(self, at: datetime):
+        self.start_button_led("flash_red", at)
+        self.start_matrix("swipe_red", at)
+        self.play_sound("lose.wav", at)
 
-    def correct_pressed(self):
-        self.start_button_led((0, 200, 0))
-        self.start_matrix((0, 128, 0))
-        self.play_sound("chirping.wav")
+    def correct_pressed(self, at: datetime):
+        self.start_button_led((0, 200, 0), at)
+        self.start_matrix((0, 128, 0), at)
+        self.play_sound("chirping.wav", at)
 
-    def correct(self):
-        self.start_button_led((0, 255, 0))
-        self.start_matrix((0, 255, 0))
+    def correct(self, at: datetime):
+        self.start_button_led((0, 255, 0), at)
+        self.start_matrix((0, 255, 0), at)
 
-    def wrong(self):
-        self.start_button_led((255, 0, 0))
-        self.start_matrix((180, 0, 0))
+    def wrong(self, at: datetime):
+        self.start_button_led((255, 0, 0), at)
+        self.start_matrix((180, 0, 0), at)
 
-    def stop_all(self):
-        self.stop_button_led()
-        self.stop_matrix()
-        self.stop_sound()
+    def stop_all(self, at: datetime):
+        self.stop_button_led(at)
+        self.stop_matrix(at)
+        self.stop_sound(at)
 
     def __del__(self):
         self._send_task.cancel()
@@ -155,9 +162,11 @@ class Game:
         if self.state in (Game.STATES.NoUnits, Game.STATES.PreGameSingle):
             self._register_callbacks[self.state](unit)
 
-        unit.stop_button_led()
-        unit.stop_matrix()
-        unit.stop_sound()
+        timestamp = datetime.now() + \
+            timedelta(seconds=0.1) + \
+            timedelta(seconds=unit.ws.latency)
+
+        unit.stop_all(timestamp)
 
     def unregister(self, unit_id: int):
         self.ACTIVE.pop(unit_id, None)
@@ -216,7 +225,10 @@ class Game:
             self.state = Game.STATES.PreGameSingle
 
     def _button_pressed_PreGameSingle(self, unit: Unit):
-        unit.win()
+        unit.win(datetime.now() +
+                 timedelta(seconds=0.1) +
+                 timedelta(seconds=unit.ws.latency)
+                 )
 
         assert (self._control_task is not None)
         self._control_task.cancel()
@@ -226,7 +238,10 @@ class Game:
 
     def _button_pressed_PreGameMultiple(self, unit: Unit):
         if unit.unit_id == self.correct:
-            unit.stop_all()
+            unit.stop_all(datetime.now() +
+                          timedelta(seconds=0.1) +
+                          timedelta(seconds=unit.ws.latency)
+                          )
 
             self._setup_game()
 
@@ -241,10 +256,19 @@ class Game:
 
     def _button_pressed_Playing(self, unit: Unit):
         if unit.unit_id in self.previous_correct:
-            unit.correct_pressed()
+            unit.correct_pressed(
+                datetime.now() +
+                timedelta(seconds=0.1) +
+                timedelta(seconds=unit.ws.latency)
+            )
         elif unit.unit_id == self.wrong:
+            latency = max(unit.ws.latency for unit in self.pressed_units)
             for pressed_unit in self.pressed_units:
-                pressed_unit.lose()
+                pressed_unit.lose(
+                    datetime.now() +
+                    timedelta(seconds=0.1) +
+                    timedelta(seconds=latency)
+                )
 
             assert (self._control_task is not None)
             self._control_task.cancel()
@@ -253,7 +277,11 @@ class Game:
 
             self.state = Game.STATES.WaitRelease
         elif unit.unit_id == self.correct:
-            unit.correct_pressed()
+            unit.correct_pressed(
+                datetime.now() +
+                timedelta(seconds=0.1) +
+                timedelta(seconds=unit.ws.latency)
+            )
 
             self.previous_correct.add(unit.unit_id)
 
@@ -270,12 +298,21 @@ class Game:
 
     def _button_pressed_PlayingAllReleased(self, unit: Unit):
         if unit.unit_id in self.previous_correct:
-            unit.correct_pressed()
+            unit.correct_pressed(
+                datetime.now() +
+                timedelta(seconds=0.1) +
+                timedelta(seconds=unit.ws.latency)
+            )
 
             self.state = Game.STATES.Playing
         elif unit.unit_id == self.wrong:
+            latency = max(unit.ws.latency for unit in self.pressed_units)
             for pressed_unit in self.pressed_units:
-                pressed_unit.lose()
+                pressed_unit.lose(
+                    datetime.now() +
+                    timedelta(seconds=0.1) +
+                    timedelta(seconds=latency)
+                )
 
             assert (self._control_task is not None)
             self._control_task.cancel()
@@ -284,7 +321,11 @@ class Game:
 
             self.state = Game.STATES.WaitRelease
         elif unit.unit_id == self.correct:
-            unit.correct_pressed()
+            unit.correct_pressed(
+                datetime.now() +
+                timedelta(seconds=0.1) +
+                timedelta(seconds=unit.ws.latency)
+            )
 
             self.previous_correct.add(unit.unit_id)
 
@@ -307,16 +348,22 @@ class Game:
                 self.state = Game.STATES.Playing
 
     def _button_pressed_WaitRelease(self, unit: Unit):
-        unit.start_button_led((0xFF, 0xA5, 0x00))
+        unit.start_button_led((0xFF, 0xA5, 0x00),
+                              datetime.now() +
+                              timedelta(seconds=0.1) +
+                              timedelta(seconds=unit.ws.latency)
+                              )
 
     def _button_released_PreGameSingle(self, unit: Unit):
         pass
     _button_released_PreGameMultiple = _button_pressed_PreGameSingle
 
     def _button_released_Playing(self, unit: Unit):
-        unit.stop_button_led()
-        unit.stop_matrix()
-        unit.stop_sound()
+        timestamp = datetime.now() + \
+            timedelta(seconds=0.1) + \
+            timedelta(seconds=unit.ws.latency)
+
+        unit.stop_all(timestamp)
 
         if not self.pressed_units:
             assert (self._control_task is not None)
@@ -327,9 +374,10 @@ class Game:
             self.state = Game.STATES.PlayingAllReleased
 
     def _button_released_WaitRelease(self, unit: Unit):
-        unit.stop_button_led()
-        unit.stop_matrix()
-        unit.stop_sound()
+        timestamp = datetime.now() +\
+            timedelta(seconds=0.1) + \
+            timedelta(seconds=unit.ws.latency)
+        unit.stop_all(timestamp)
 
         self.previous_correct.discard(unit.unit_id)
 
@@ -358,43 +406,77 @@ class Game:
             self.correct = self.unit_list.pop(0)
 
             correct_unit = self.ACTIVE[self.correct]
-            correct_unit.correct()
+            correct_unit.correct(
+                datetime.now() +
+                timedelta(seconds=0.1) +
+                timedelta(seconds=correct_unit.ws.latency)
+            )
         else:
             self.correct = None
 
     def _next_wrong(self):
         if self.unit_list:
             self.wrong = random.choice(self.unit_list)
-            self.ACTIVE[self.wrong].wrong()
+            wrong_unit = self.ACTIVE[self.wrong]
+            wrong_unit.wrong(
+                datetime.now() +
+                timedelta(seconds=0.1) +
+                timedelta(seconds=wrong_unit.ws.latency)
+            )
         else:
             self.wrong = None
 
     async def _control_PreGameSingle(self):
         if self.correct is not None:
-            self.ACTIVE[self.correct].stop_button_led()
-            self.ACTIVE[self.correct].stop_matrix()
-            self.ACTIVE[self.correct].stop_sound()
+            correct_unit = self.ACTIVE[self.correct]
+
+            timestamp = datetime.now() +\
+                timedelta(seconds=0.1) + \
+                timedelta(seconds=correct_unit.ws.latency)
+
+            correct_unit.stop_all(timestamp)
 
         self.correct = random.choice(list(self.ACTIVE.keys()))
         assert self.correct is not None
-        self.ACTIVE[self.correct].correct()
+        correct_unit = self.ACTIVE[self.correct]
+
+        correct_unit.correct(
+            datetime.now() +
+            timedelta(seconds=0.1) +
+            timedelta(seconds=correct_unit.ws.latency)
+        )
 
     async def _control_PreGameMultiple(self):
         while True:
             if self.correct is not None:
-                self.ACTIVE[self.correct].stop_button_led()
-                self.ACTIVE[self.correct].stop_matrix()
-                self.ACTIVE[self.correct].stop_sound()
+                correct_unit = self.ACTIVE[self.correct]
+
+                correct_unit.stop_all(
+                    datetime.now() +
+                    timedelta(seconds=0.1) +
+                    timedelta(seconds=correct_unit.ws.latency)
+                )
             while self.correct == (next_unit := random.choice(list(self.ACTIVE.keys()))):
                 pass
 
             self.correct = next_unit
-            self.ACTIVE[self.correct].correct()
+            correct_unit = self.ACTIVE[self.correct]
+
+            correct_unit.correct(
+                datetime.now() +
+                timedelta(seconds=0.1) +
+                timedelta(seconds=correct_unit.ws.latency)
+            )
 
     async def _control_WaitRelease(self):
         await asyncio.sleep(10)
         for unit in self.pressed_units:
-            unit.start_button_led("flash_blue")
+            unit.start_button_led(
+                "flash_blue",
+                datetime.now() +
+                timedelta(seconds=0.1) +
+                timedelta(seconds=unit.ws.latency)
+            )
 
     async def _control_Playing(self):
         pass
@@ -425,6 +507,7 @@ async def handler(websocket: WebSocketServerProtocol, game: Game):
             decoded = json.loads(msg)
 
             if decoded['type'] == 'REGISTER':
+                await websocket.ping()
                 unit_id = int(decoded['id'], 16)
                 game.register(unit_id, Unit(websocket, unit_id))
             elif decoded['type'] == 'BUTTON_PRESSED':
@@ -447,7 +530,7 @@ async def handler(websocket: WebSocketServerProtocol, game: Game):
 
 async def main():
     game = Game()
-    async with serve(lambda x: handler(x, game), "", 8001):
+    async with serve(lambda x: handler(x, game), "", 8001, ping_interval=5):
         await asyncio.Future()  # run forever
 
 
