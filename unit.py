@@ -144,12 +144,11 @@ class MatrixLEDController(Controller):
 class SoundController(Controller):
     def __init__(self):
         super().__init__()
-        pygame.mixer.init()
-        self.sound: Optional[pygame.mixer.Sound] = None
+        pygame.mixer.init(buffer=1024)
 
     async def _run(self, *args):
-        self.sound = pygame.mixer.Sound(args[0])
-        self.sound.play(loops=-1)
+        pygame.mixer.music.load(args[0])
+        pygame.mixer.music.play(loops=-1)
 
         pattern = tuple(0.1*i for i in range(int(1/0.1+1)))
         pattern += pattern[-2::-1]
@@ -157,13 +156,12 @@ class SoundController(Controller):
         volume_loop = cycle(pattern)
 
         while self.state == Controller.STATES.RUNNING:
-            self.sound.set_volume(next(volume_loop))
+            pygame.mixer.music.set_volume(next(volume_loop))
             await asyncio.sleep(0.1)
 
     async def stop(self):
-        if self.sound:
-            self.sound.stop()
-            self.sound = None
+        pygame.mixer.music.stop()
+        pygame.mixer.music.unload()
         await super().stop()
     off = stop
 
