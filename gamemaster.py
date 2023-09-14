@@ -4,6 +4,7 @@ from enum import IntEnum
 from functools import partialmethod
 import functools
 import json
+import logging
 import random
 from typing import Any, Optional, Union
 
@@ -11,6 +12,10 @@ from websockets.server import serve
 from websockets.exceptions import ConnectionClosedError
 
 from websockets.server import WebSocketServerProtocol
+
+logging.basicConfig(format='%(asctime)s %(message)s',
+                    filename='game.log', filemode='a', level=logging.INFO)
+_logger = logging.getLogger("gamemaster")
 
 
 class Unit:
@@ -86,6 +91,9 @@ class Unit:
     def __del__(self):
         self._send_task.cancel()
 
+    def __repr__(self) -> str:
+        return hex(self.unit_id)
+
 
 class Game:
     STATES = IntEnum(
@@ -135,10 +143,12 @@ class Game:
 
     @state.setter
     def state(self, next_state: STATES):
-        print(f"Transition {self.state.name}->{next_state.name}")
+        _logger.info(f"Transition {self.state.name}->{next_state.name}")
         self._state = next_state
 
     def button_pressed(self, unit_id: int):
+        _logger.info(f"Event: Button Pressed, Unit: {unit_id:#x}")
+
         if unit_id in self.ACTIVE:
             unit = self.ACTIVE[unit_id]
 
@@ -148,6 +158,8 @@ class Game:
             self._button_pressed_callbacks[self.state](unit)
 
     def button_released(self, unit_id: int):
+        _logger.info(f"Event: Button Released, Unit: {unit_id:#x}")
+
         if unit_id in self.ACTIVE:
             unit = self.ACTIVE[unit_id]
 
@@ -157,6 +169,8 @@ class Game:
             self._button_released_callbacks[self.state](unit)
 
     def register(self, unit_id: int, unit: Unit):
+        _logger.info(f"Event: Unit Register, Unit: {unit}")
+
         self.ACTIVE[unit_id] = unit
 
         if self.state in (Game.STATES.NoUnits, Game.STATES.PreGameSingle):
@@ -169,6 +183,8 @@ class Game:
         unit.stop_all(timestamp)
 
     def unregister(self, unit_id: int):
+        _logger.info(f"Event: Unit Unregister, Unit: {unit_id:#x}")
+
         self.ACTIVE.pop(unit_id, None)
         self.previous_correct.discard(unit_id)
 
@@ -401,6 +417,8 @@ class Game:
         self.unit_list = list(self.ACTIVE.keys())
         random.shuffle(self.unit_list)
 
+        _logger.info(f"Game: Setup, Order: {self.unit_list}")
+
     def _next_correct(self):
         if self.unit_list:
             self.correct = self.unit_list.pop(0)
@@ -411,8 +429,12 @@ class Game:
                 timedelta(seconds=0.1) +
                 timedelta(seconds=correct_unit.ws.latency)
             )
+
+            _logger.info(f"Game: Next correct, Unit: {self.correct:#x}")
         else:
             self.correct = None
+
+            _logger.info(f"Game: Next correct, Unit: None")
 
     def _next_wrong(self):
         if self.unit_list:
@@ -423,8 +445,10 @@ class Game:
                 timedelta(seconds=0.1) +
                 timedelta(seconds=wrong_unit.ws.latency)
             )
+            _logger.info(f"Game: Next wrong, Unit: {self.wrong:#x}")
         else:
             self.wrong = None
+            _logger.info(f"Game: Next wrong, Unit: None")
 
     async def _control_PreGameSingle(self):
         if self.correct is not None:
@@ -445,6 +469,8 @@ class Game:
             timedelta(seconds=0.1) +
             timedelta(seconds=correct_unit.ws.latency)
         )
+
+        _logger.info(f"Game: Next correct, Unit: {self.correct:#x}")
 
     async def _control_PreGameMultiple(self):
         while True:
@@ -468,6 +494,8 @@ class Game:
                 timedelta(seconds=correct_unit.ws.latency)
             )
 
+            _logger.info(f"Game: Next correct, Unit: {self.correct:#x}")
+
     async def _control_WaitRelease(self):
         await asyncio.sleep(10)
         for unit in self.pressed_units:
@@ -477,6 +505,8 @@ class Game:
                 timedelta(seconds=0.1) +
                 timedelta(seconds=unit.ws.latency)
             )
+
+            _logger.info(f"Event: Button held, Units: {self.pressed_units}")
 
     async def _control_Playing(self):
         pass
