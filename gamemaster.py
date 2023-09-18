@@ -6,6 +6,7 @@ import functools
 import json
 import logging
 import random
+import ssl
 from typing import Any, Optional, Union
 
 from websockets.server import serve
@@ -560,7 +561,11 @@ async def handler(websocket: WebSocketServerProtocol, game: Game):
 
 async def main():
     game = Game()
-    async with serve(lambda x: handler(x, game), "", 8001, ping_interval=5):
+
+    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ssl_context.load_cert_chain("unit1-cert.pem", "unit1-key.pem")
+
+    async with serve(lambda x: handler(x, game), "unit1", 8001, ping_interval=5, ssl=ssl_context):
         await asyncio.Future()  # run forever
 
 
