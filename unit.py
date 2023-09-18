@@ -4,11 +4,14 @@ The program is used as a controller and interface to the low-level
 components of the game, i.e. the button, its backlight and the LED matrix.
 '''
 
+import argparse
 import asyncio
 from asyncio import PriorityQueue, Event
 from datetime import datetime
 from itertools import cycle
 import json
+import ssl
+import sys
 
 from websockets.client import connect
 from websockets.client import WebSocketClientProtocol
@@ -299,8 +302,20 @@ def button_released(ws: WebSocketClientProtocol, eventloop: asyncio.AbstractEven
     asyncio.run_coroutine_threadsafe(send_server(ws, message), eventloop)
 
 
-async def main():
+def parse_arguments(args: list[str]):
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('-ca', '--ca-certificate',
+                        metavar='path',
+                        help='The path to the CA certificate', required=True)
+
+    return parser.parse_args(args)
+
+
+async def main(args: list[str]):
     ''' The main function for the unit '''
+
+    options = parse_arguments(args)
 
     # Initialize the hardware interface
     button: Button = Button(26)
@@ -340,6 +355,8 @@ async def main():
                 return_exceptions=True)
         finally:
             await unregister(socket)
+    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ssl_context.load_verify_locations(options.ca_certificate)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main(sys.argv[1:]))
