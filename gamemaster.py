@@ -1,8 +1,7 @@
 import asyncio
 from datetime import datetime, timedelta
 from enum import IntEnum
-from functools import partialmethod
-import functools
+import http
 import json
 import logging
 import random
@@ -559,13 +558,18 @@ async def handler(websocket: WebSocketServerProtocol, game: Game):
             game.unregister(unit_id)
 
 
+async def process_request(path, req_headers):
+    if path == '/alive':
+        return http.HTTPStatus.OK, [], b'unit1\n'
+
+
 async def main():
     game = Game()
 
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ssl_context.load_cert_chain("unit1-cert.pem", "unit1-key.pem")
 
-    async with serve(lambda x: handler(x, game), "unit1", 8001, ping_interval=5, ssl=ssl_context):
+    async with serve(lambda x: handler(x, game), "unit1", 8001, ping_interval=5, ssl=ssl_context, process_request=process_request):
         await asyncio.Future()  # run forever
 
 
