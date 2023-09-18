@@ -7,14 +7,20 @@ components of the game, i.e. the button, its backlight and the LED matrix.
 import argparse
 import asyncio
 from asyncio import PriorityQueue, Event
-from datetime import datetime
+from datetime import datetime, timedelta
+import http
 from itertools import cycle
 import json
+import re
+import signal
 import ssl
 import sys
+import requests
+import websockets
 
 from websockets.client import connect
 from websockets.client import WebSocketClientProtocol
+from websockets.exceptions import ConnectionClosedError
 
 from gpiozero import Button, RGBLED
 from colorzero import Color, Hue
@@ -29,6 +35,8 @@ from abc import ABC, abstractmethod
 
 LED_COUNT = 16      # Number of LED pixels.
 LED_PIN = 21        # GPIO pin connected to the pixels (21 uses PCM).
+
+RECHECK_INTERVAL = 10
 
 
 class Controller(ABC):
@@ -206,7 +214,7 @@ async def led_matrix_control(matrix: PixelStrip, queue: PriorityQueue[tuple[date
             if command['value'] == "START":
                 await controller.start(command['pattern'])
             elif command['value'] == "OFF":
-                await controller.stop()
+                await controller.off()
 
     async with MatrixLEDController(matrix) as controller:
         background_tasks = set()
@@ -270,8 +278,11 @@ async def recv_server(socket: WebSocketClientProtocol,
                       button_led_queue: PriorityQueue[tuple[datetime, dict[str, str]]],
                       matrix_queue: PriorityQueue[tuple[datetime, dict[str, str]]],
                       sound_queue: PriorityQueue[tuple[datetime, dict[str, str]]]):
-    while not socket.closed and not exit.is_set():
-        message: dict[str, str] = json.loads(await socket.recv())
+    async for msg in socket:
+        if exit.is_set():
+            break
+
+        message: dict[str, str] = json.loads(msg)
         timestamp = datetime.strptime(message['at'], "%Y-%m-%d %H:%M:%S.%f")
 
         print(message)
@@ -308,8 +319,26 @@ def parse_arguments(args: list[str]):
     parser.add_argument('-ca', '--ca-certificate',
                         metavar='path',
                         help='The path to the CA certificate', required=True)
+    parser.add_argument('-g', '--gamemaster-url',
+                        action='append', required=True)
 
     return parser.parse_args(args)
+
+
+def discover_gamemaster(gamemaster_urls: list[str], ca_certificate: str):
+    gamemaster = None
+    for url in gamemaster_urls:
+        try:
+            response = requests.get(
+                f"https://{url}:8001/alive",
+                verify=ca_certificate,
+                timeout=1)
+
+            gamemaster = response.content.decode().strip()
+        except (requests.ReadTimeout, requests.TooManyRedirects, requests.ConnectionError):
+            pass
+
+    return gamemaster
 
 
 async def main(args: list[str]):
@@ -335,28 +364,64 @@ async def main(args: list[str]):
 
     loop = asyncio.get_event_loop()
 
-    async with connect("ws://139.91.68.15:8001") as socket:
-        try:
-            button.when_pressed = lambda: button_pressed(socket, loop)
-            button.when_released = lambda: button_released(socket, loop)
-
-            await register(socket)
-
-            await asyncio.gather(recv_server(socket,
-                                             exit_event,
-                                             button_led_queue,
-                                             led_matrix_queue,
-                                             sound_queue),
-                                 button_led_control(
-                button_led, button_led_queue, exit_event),
-                led_matrix_control(
-                led_matrix, led_matrix_queue, exit_event),
-                sound_control(sound_queue, exit_event),
-                return_exceptions=True)
-        finally:
-            await unregister(socket)
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ssl_context.load_verify_locations(options.ca_certificate)
+
+    button_led_task = asyncio.create_task(
+        button_led_control(
+            button_led,
+            button_led_queue,
+            exit_event))
+    led_matrix_task = asyncio.create_task(
+        led_matrix_control(
+            led_matrix,
+            led_matrix_queue,
+            exit_event))
+    sound_task = asyncio.create_task(
+        sound_control(
+            sound_queue,
+            exit_event))
+
+    while not exit_event.is_set():
+        gamemaster_url = discover_gamemaster(
+            options.gamemaster_url, options.ca_certificate)
+        if gamemaster_url:
+            async with connect(f"wss://{gamemaster_url}:8001", ssl=ssl_context) as socket:
+                loop.add_signal_handler(
+                    signal.SIGTERM, loop.create_task, socket.close())
+                button.when_pressed = lambda: button_pressed(socket, loop)
+                button.when_released = lambda: button_released(
+                    socket, loop)
+
+                await register(socket)
+                try:
+                    await recv_server(socket,
+                                      exit_event,
+                                      button_led_queue,
+                                      led_matrix_queue,
+                                      sound_queue)
+                except ConnectionClosedError:
+                    pass
+                else:
+                    await unregister(socket)
+        else:
+            start_blink = {
+                'type': 'BUTTON_LED', 'value': 'START', 'pattern': "flash_red"}
+            timestamp = datetime.now()+timedelta(seconds=1)
+
+            stop_matrix = {'type': 'MATRIX_LED', 'value': 'OFF'}
+            stop_sound = {'type': 'SOUND', 'value': 'STOP'}
+
+            await button_led_queue.put((timestamp, start_blink))
+            await led_matrix_queue.put((timestamp, stop_matrix))
+            await sound_queue.put((timestamp, stop_sound))
+
+            await asyncio.sleep(RECHECK_INTERVAL)
+
+            stop_blink = {'type': 'BUTTON_LED', 'value': 'STOP'}
+            timestamp = datetime.now()+timedelta(seconds=1)
+
+            await button_led_queue.put((timestamp, stop_blink))
 
 if __name__ == "__main__":
     asyncio.run(main(sys.argv[1:]))
