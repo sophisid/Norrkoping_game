@@ -9,11 +9,14 @@ import random
 import ssl
 import sys
 from typing import Any, Optional, Union
+import requests
 
 from websockets.server import serve
 from websockets.exceptions import ConnectionClosedError
 
 from websockets.server import WebSocketServerProtocol
+
+from statemachine import State, StateMachine
 
 logging.basicConfig(format='%(asctime)s %(message)s',
                     filename='game.log', filemode='a', level=logging.INFO)
@@ -532,6 +535,63 @@ class Game:
                 self.state = Game.STATES.PreGameSingle
 
 
+class Gamemaster():
+    def __init__(self, url: str, priority: int, gamemaster_urls: list[str], ca_cert: str):
+        self.gamemaster_urls = gamemaster_urls
+        self.ca_certificate = ca_cert
+
+        self.url = url
+        self.priority = priority
+
+    def _get_is_gamemaster(self, url):
+        try:
+            response = requests.get(
+                f"https://{url}:8001/gamemaster",
+                verify=self.ca_certificate,
+                timeout=1)
+
+            if response.status_code == http.HTTPStatus.FOUND:
+                return True
+        except (requests.ReadTimeout, requests.TooManyRedirects, requests.ConnectionError):
+            pass
+
+        return False
+
+    def get_gamemaster(self):
+        return any(self._get_is_gamemaster(url) for url in self.gamemaster_urls if url != self.url)
+
+    def _request_gamemaster(self, url):
+        try:
+            response = requests.get(
+                f"https://{url}:8001/request_gamemaster",
+                verify=self.ca_certificate,
+                timeout=1)
+
+            if response.status_code == http.HTTPStatus.OK:
+                return True
+            elif response.status_code == http.HTTPStatus.CONFLICT:
+                return int(response.content) > self.priority
+        except (requests.ReadTimeout, requests.TooManyRedirects, requests.ConnectionError):
+            pass
+
+        return False
+
+    def request_gamemaster(self):
+        return all(self._request_gamemaster(url) for url in (set(self.gamemaster_urls)-{self.url}))
+
+
+class GamemasterFSM(StateMachine):
+    Initial = State(initial=True)
+    Intent = State()
+    Gamemaster = State()
+    End = State()
+
+    step = Initial.to(End, cond="get_gamemaster") | \
+        Initial.to(Intent, unless="get_gamemaster") |\
+        Intent.to(Gamemaster, cond="request_gamemaster") |\
+        Intent.to(End, unless="request_gamemaster")
+
+
 async def handler(websocket: WebSocketServerProtocol, game: Game):
     unit_id = None
     try:
@@ -563,6 +623,10 @@ async def handler(websocket: WebSocketServerProtocol, game: Game):
 async def process_request(path, req_headers):
     if path == '/alive':
         return http.HTTPStatus.OK, [], b'unit1\n'
+    elif path == '/gamemaster':
+        ...
+    elif path == '/request_gamemaster':
+        ...
 
 
 def parse_arguments(args: list[str]):
@@ -594,6 +658,13 @@ async def main(args: list[str]):
     options = parse_arguments(args)
 
     game = Game()
+
+    gamemaster_params = Gamemaster(
+        options.url,
+        options.priority,
+        options.gamemaster_urls,
+        options.ca_certificate)
+    gamemaster_state = GamemasterFSM(gamemaster_params)
 
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ssl_context.load_cert_chain(options.certificate, options.key)
