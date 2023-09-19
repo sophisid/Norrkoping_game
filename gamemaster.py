@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 from datetime import datetime, timedelta
 from enum import IntEnum
@@ -6,6 +7,7 @@ import json
 import logging
 import random
 import ssl
+import sys
 from typing import Any, Optional, Union
 
 from websockets.server import serve
@@ -563,15 +565,42 @@ async def process_request(path, req_headers):
         return http.HTTPStatus.OK, [], b'unit1\n'
 
 
-async def main():
+def parse_arguments(args: list[str]):
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('-u', '--url', required=True)
+
+    parser.add_argument('-p', '--priority', type=int, required=True)
+
+    parser.add_argument('-k', '--key',
+                        metavar='path',
+                        help='The path to the gamemaster key', required=True)
+
+    parser.add_argument('-r', '--certificate',
+                        metavar='path',
+                        help='The path to the gamemaster certificate', required=True)
+
+    parser.add_argument('-g', '--gamemaster-urls',
+                        action='append', required=True)
+
+    parser.add_argument('-ca', '--ca-certificate',
+                        metavar='path',
+                        help='The path to the CA certificate', required=True)
+
+    return parser.parse_args(args)
+
+
+async def main(args: list[str]):
+    options = parse_arguments(args)
+
     game = Game()
 
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    ssl_context.load_cert_chain("unit1-cert.pem", "unit1-key.pem")
+    ssl_context.load_cert_chain(options.certificate, options.key)
 
-    async with serve(lambda x: handler(x, game), "unit1", 8001, ping_interval=5, ssl=ssl_context, process_request=process_request):
+    async with serve(lambda x: handler(x, game), options.url, 8001, ping_interval=5, ssl=ssl_context, process_request=process_request):
         await asyncio.Future()  # run forever
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main(sys.argv[1:]))
