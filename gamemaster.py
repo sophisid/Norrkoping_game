@@ -379,7 +379,7 @@ class Game:
 
     def _button_released_PreGameSingle(self, unit: Unit):
         pass
-    _button_released_PreGameMultiple = _button_pressed_PreGameSingle
+    _button_released_PreGameMultiple = _button_released_PreGameSingle
 
     def _button_released_Playing(self, unit: Unit):
         timestamp = datetime.now() + \
