@@ -386,8 +386,6 @@ class Game:
             timedelta(seconds=0.1) + \
             timedelta(seconds=unit.ws.latency)
 
-        unit.stop_all(timestamp)
-
         if not self.pressed_units:
             assert (self._control_task is not None)
             self._control_task.cancel()
