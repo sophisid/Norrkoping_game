@@ -723,7 +723,7 @@ async def main(args: list[str]):
     gamemaster_state = GamemasterFSM(gamemaster_params)
 
     async def process_wrap(path, req_h):
-        await process_request(path, req_h, gamemaster_state)
+        return await process_request(path, req_h, gamemaster_state)
 
     # Refactor: Push everything to the same server port
     async with serve(lambda x: handler(x, Game()), options.url, 8002, ping_interval=5, ssl=ssl_context, process_request=process_wrap):
