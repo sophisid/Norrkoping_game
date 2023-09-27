@@ -260,6 +260,7 @@ class Game:
 
     def _button_pressed_PreGameMultiple(self, unit: Unit):
         if unit.unit_id == self.correct:
+            _logger.info("Correct")
             unit.stop_all(datetime.now() +
                           timedelta(seconds=0.1) +
                           timedelta(seconds=unit.ws.latency)
