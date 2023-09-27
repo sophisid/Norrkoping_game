@@ -502,6 +502,8 @@ class Game:
 
             _logger.info(f"Game: Next correct, Unit: {self.correct:#x}")
 
+            await asyncio.sleep(10)
+
     async def _control_WaitRelease(self):
         await asyncio.sleep(10)
         for unit in self.pressed_units:
