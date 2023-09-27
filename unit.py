@@ -330,7 +330,7 @@ def discover_gamemaster(gamemaster_urls: list[str], ca_certificate: str):
     for url in gamemaster_urls:
         try:
             response = requests.get(
-                f"https://{url}:8001/alive",
+                f"https://{url}:8002/alive",
                 verify=ca_certificate,
                 timeout=1)
 
