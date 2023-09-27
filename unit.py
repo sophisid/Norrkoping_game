@@ -346,7 +346,7 @@ async def main(args: list[str]):
     ''' The main function for the unit '''
 
     options = parse_arguments(args)
-
+    i =0
     # Initialize the hardware interface
     button: Button = Button(26)
     button_led: RGBLED = RGBLED(17, 27, 22)
@@ -412,15 +412,16 @@ async def main(args: list[str]):
             stop_matrix = {'type': 'MATRIX_LED', 'value': 'OFF'}
             stop_sound = {'type': 'SOUND', 'value': 'STOP'}
 
-            await button_led_queue.put((0, start_blink))
-            await led_matrix_queue.put((0, stop_matrix))
-            await sound_queue.put((0, stop_sound))
+            await button_led_queue.put((i, start_blink))
+            await led_matrix_queue.put((i, stop_matrix))
+            await sound_queue.put((i, stop_sound))
 
             await asyncio.sleep(RECHECK_INTERVAL)
 
             stop_blink = {'type': 'BUTTON_LED', 'value': 'STOP'}
             
-            await button_led_queue.put((0, stop_blink))
+            await button_led_queue.put((i, stop_blink))
+            i+=1
 
 if __name__ == "__main__":
     asyncio.run(main(sys.argv[1:]))
