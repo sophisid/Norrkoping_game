@@ -544,7 +544,7 @@ class Gamemaster():
         self.url = url
         self.priority = priority
 
-        self.active_gamemaster = None
+        self.active_gamemaster = ''
 
     async def _get_is_gamemaster(self, session: aiohttp.ClientSession, url: str):
         try:
@@ -664,19 +664,22 @@ async def handler(websocket: WebSocketServerProtocol, game: Game):
 
 async def process_request(path, req_headers, game_params: GamemasterFSM):
     if path == '/alive':
-        return http.HTTPStatus.OK, [], b'unit1\n'
+        if game_params._state == GamemasterFSM.STATES.Gamemaster:
+            return http.HTTPStatus.FOUND, [], f'{game_params.model.url}\n'.encode()
+        else:
+            return http.HTTPStatus.OK, [], f'{game_params.model.active_gamemaster}\n'.encode()
     elif path == '/gamemaster':
         if game_params._state == GamemasterFSM.STATES.Gamemaster:
-            return http.HTTPStatus.FOUND, [], b'unit1\n'
+            return http.HTTPStatus.FOUND, [], f'{game_params.model.url}\n'.encode()
         else:
-            return http.HTTPStatus.OK, [], b'unit1\n'
+            return http.HTTPStatus.OK, [], f'{game_params.model.active_gamemaster}\n'.encode()
     elif path == '/request_gamemaster':
         if game_params._state in {GamemasterFSM.STATES.Initial, GamemasterFSM.STATES.End}:
             return http.HTTPStatus.OK, [], b''
         elif game_params._state == GamemasterFSM.STATES.Intent:
             return http.HTTPStatus.CONFLICT, [], f'{game_params.model.priority}\n'.encode()
         elif game_params._state == GamemasterFSM.STATES.Gamemaster:
-            return http.HTTPStatus.FOUND, [], f'unit1\n'
+            return http.HTTPStatus.FOUND, [], f'{game_params.model.url}\n'.encode()
 
 
 def parse_arguments(args: list[str]):
