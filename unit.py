@@ -7,7 +7,6 @@ components of the game, i.e. the button, its backlight and the LED matrix.
 import argparse
 import asyncio
 from asyncio import PriorityQueue, Event
-from datetime import datetime, timedelta
 import http
 from itertools import cycle
 import json
@@ -178,17 +177,17 @@ class SoundController(Controller):
     off = stop
 
 
-async def button_led_control(led: RGBLED, queue: PriorityQueue[tuple[datetime, dict[str, str]]], exit: Event):
-    async def execute(timestamp: datetime, command: dict[str, str], controller: ButtonLEDController):
-        if datetime.now() < timestamp:
-            await asyncio.sleep((timestamp-datetime.now()).total_seconds())
+async def button_led_control(led: RGBLED, queue: PriorityQueue[tuple[int, dict[str, str]]], exit: Event):
+    async def execute(timestamp: int, command: dict[str, str], controller: ButtonLEDController):
+        # if datetime.now() < timestamp:
+        #     await asyncio.sleep((timestamp-datetime.now()).total_seconds())
 
-            if command['value'] == "START":
-                await controller.start(command['pattern'])
-            elif command['value'] == "STOP":
-                await controller.stop()
-            elif command['value'] == "OFF":
-                await controller.off()
+        if command['value'] == "START":
+            await controller.start(command['pattern'])
+        elif command['value'] == "STOP":
+            await controller.stop()
+        elif command['value'] == "OFF":
+            await controller.off()
 
     async with ButtonLEDController(led) as controller:
         background_tasks = set()
@@ -206,15 +205,15 @@ async def button_led_control(led: RGBLED, queue: PriorityQueue[tuple[datetime, d
             task.add_done_callback(background_tasks.discard)
 
 
-async def led_matrix_control(matrix: PixelStrip, queue: PriorityQueue[tuple[datetime, dict[str, str]]], exit: Event):
-    async def execute(timestamp: datetime, command: dict[str, str], controller: MatrixLEDController):
-        if datetime.now() < timestamp:
-            await asyncio.sleep((timestamp-datetime.now()).total_seconds())
+async def led_matrix_control(matrix: PixelStrip, queue: PriorityQueue[tuple[int, dict[str, str]]], exit: Event):
+    async def execute(timestamp: int, command: dict[str, str], controller: MatrixLEDController):
+        # if datetime.now() < timestamp:
+        #     await asyncio.sleep((timestamp-datetime.now()).total_seconds())
 
-            if command['value'] == "START":
-                await controller.start(command['pattern'])
-            elif command['value'] == "OFF":
-                await controller.off()
+        if command['value'] == "START":
+            await controller.start(command['pattern'])
+        elif command['value'] == "OFF":
+            await controller.off()
 
     async with MatrixLEDController(matrix) as controller:
         background_tasks = set()
@@ -232,15 +231,15 @@ async def led_matrix_control(matrix: PixelStrip, queue: PriorityQueue[tuple[date
             task.add_done_callback(background_tasks.discard)
 
 
-async def sound_control(queue: PriorityQueue[tuple[datetime, dict[str, str]]], exit: Event):
-    async def execute(timestamp: datetime, command: dict[str, str], controller: SoundController):
-        if datetime.now() < timestamp:
-            await asyncio.sleep((timestamp-datetime.now()).total_seconds())
+async def sound_control(queue: PriorityQueue[tuple[int, dict[str, str]]], exit: Event):
+    async def execute(timestamp: int, command: dict[str, str], controller: SoundController):
+        # if datetime.now() < timestamp:
+        #     await asyncio.sleep((timestamp-datetime.now()).total_seconds())
 
-            if command['value'] == "START":
-                await controller.start(command['filename'])
-            elif command['value'] == "STOP":
-                await controller.stop()
+        if command['value'] == "START":
+            await controller.start(command['filename'])
+        elif command['value'] == "STOP":
+            await controller.stop()
 
     async with SoundController() as controller:
         background_tasks = set()
@@ -275,28 +274,30 @@ async def unregister(ws):
 
 async def recv_server(socket: WebSocketClientProtocol,
                       exit: Event,
-                      button_led_queue: PriorityQueue[tuple[datetime, dict[str, str]]],
-                      matrix_queue: PriorityQueue[tuple[datetime, dict[str, str]]],
-                      sound_queue: PriorityQueue[tuple[datetime, dict[str, str]]]):
+                      button_led_queue: PriorityQueue[tuple[int, dict[str, str]]],
+                      matrix_queue: PriorityQueue[tuple[int, dict[str, str]]],
+                      sound_queue: PriorityQueue[tuple[int, dict[str, str]]]):
+    i = 0
     async for msg in socket:
         if exit.is_set():
             break
 
         message: dict[str, str] = json.loads(msg)
-        timestamp = datetime.strptime(message['at'], "%Y-%m-%d %H:%M:%S.%f")
+        # timestamp = datetime.strptime(message['at'], "%Y-%m-%d %H:%M:%S.%f")
 
         print(message)
         if message['type'] == "BUTTON_LED":
-            await button_led_queue.put((timestamp, message))
+            await button_led_queue.put((i, message))
         elif message['type'] == "MATRIX_LED":
-            await matrix_queue.put((timestamp, message))
+            await matrix_queue.put((i, message))
         elif message['type'] == "SOUND":
-            await sound_queue.put((timestamp, message))
+            await sound_queue.put((i, message))
         elif message['type'] == "DIE":
             exit.set()
-            await button_led_queue.put((timestamp, message))
-            await matrix_queue.put((timestamp, message))
-            await sound_queue.put((timestamp, message))
+            await button_led_queue.put((i, message))
+            await matrix_queue.put((i, message))
+            await sound_queue.put((i, message))
+        i+=1
 
 
 async def send_server(socket: WebSocketClientProtocol, message: bytes):
@@ -351,11 +352,11 @@ async def main(args: list[str]):
     button_led: RGBLED = RGBLED(17, 27, 22)
     led_matrix: PixelStrip = PixelStrip(LED_COUNT, LED_PIN)
 
-    button_led_queue: PriorityQueue[tuple[datetime,
+    button_led_queue: PriorityQueue[tuple[int,
                                           dict[str, str]]] = asyncio.PriorityQueue()
-    led_matrix_queue: PriorityQueue[tuple[datetime,
+    led_matrix_queue: PriorityQueue[tuple[int,
                                           dict[str, str]]] = asyncio.PriorityQueue()
-    sound_queue: PriorityQueue[tuple[datetime,
+    sound_queue: PriorityQueue[tuple[int,
                                      dict[str, str]]] = asyncio.PriorityQueue()
 
     exit_event = asyncio.Event()
@@ -407,21 +408,19 @@ async def main(args: list[str]):
         else:
             start_blink = {
                 'type': 'BUTTON_LED', 'value': 'START', 'pattern': "flash_red"}
-            timestamp = datetime.now()+timedelta(seconds=1)
 
             stop_matrix = {'type': 'MATRIX_LED', 'value': 'OFF'}
             stop_sound = {'type': 'SOUND', 'value': 'STOP'}
 
-            await button_led_queue.put((timestamp, start_blink))
-            await led_matrix_queue.put((timestamp, stop_matrix))
-            await sound_queue.put((timestamp, stop_sound))
+            await button_led_queue.put((0, start_blink))
+            await led_matrix_queue.put((0, stop_matrix))
+            await sound_queue.put((0, stop_sound))
 
             await asyncio.sleep(RECHECK_INTERVAL)
 
             stop_blink = {'type': 'BUTTON_LED', 'value': 'STOP'}
-            timestamp = datetime.now()+timedelta(seconds=1)
-
-            await button_led_queue.put((timestamp, stop_blink))
+            
+            await button_led_queue.put((0, stop_blink))
 
 if __name__ == "__main__":
     asyncio.run(main(sys.argv[1:]))
