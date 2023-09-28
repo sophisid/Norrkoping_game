@@ -108,6 +108,8 @@ class Game:
                    'PreGameMultiple',
                    'Playing',
                    'PlayingAllReleased',
+                   'Lose',
+                   'Win',
                    'WaitRelease'])
 
     def __init__(self) -> None:
@@ -126,6 +128,8 @@ class Game:
             Game.STATES.PreGameMultiple: self._button_pressed_PreGameMultiple,
             Game.STATES.Playing: self._button_pressed_Playing,
             Game.STATES.PlayingAllReleased: self._button_pressed_PlayingAllReleased,
+            Game.STATES.Lose: self._button_pressed_Lose,
+            Game.STATES.Win: self._button_pressed_Win,
             Game.STATES.WaitRelease: self._button_pressed_WaitRelease
         }
 
@@ -133,6 +137,9 @@ class Game:
             Game.STATES.PreGameSingle: self._button_released_PreGameSingle,
             Game.STATES.PreGameMultiple: self._button_released_PreGameMultiple,
             Game.STATES.Playing: self._button_released_Playing,
+            Game.STATES.PlayingAllReleased: self._button_released_PlayingAllReleased,
+            Game.STATES.Lose: self._button_released_Lose,
+            Game.STATES.Win: self._button_released_Win,
             Game.STATES.WaitRelease: self._button_released_WaitRelease
         }
 
@@ -143,12 +150,24 @@ class Game:
 
         self._control_task: Optional[asyncio.Task] = None
 
+    def __repr__(self):
+        return f"""Game:
+            Active:             {self.ACTIVE.values()}
+            State:              {str(self.state)}
+            Correct:            {self.correct}
+            Upcoming list:      {self.unit_list}
+            Wrong:              {self.wrong}
+            Previous Correct:   {self.previous_correct}
+            Pressed Units:      {self.pressed_units}
+"""
+
     @property
     def state(self):
         return self._state
 
     @state.setter
     def state(self, next_state: STATES):
+        _logger.info(self)
         _logger.info(f"Transition {self.state.name}->{next_state.name}")
         self._state = next_state
 
@@ -220,9 +239,9 @@ class Game:
             assert (self._control_task is not None)
             self._control_task.cancel()
             self._control_task = asyncio.create_task(
-                self._control_WaitRelease())
+                self._control_Win())
 
-            self.state = Game.STATES.WaitRelease
+            self.state = Game.STATES.Win
 
     def _register_NoUnits(self, unit: Unit):
         assert (self._control_task is None)
@@ -254,19 +273,23 @@ class Game:
 
         assert (self._control_task is not None)
         self._control_task.cancel()
-        self._control_task = asyncio.create_task(self._control_WaitRelease())
+        self._control_task = asyncio.create_task(self._control_Win())
 
-        self.state = Game.STATES.WaitRelease
+        self.state = Game.STATES.Win
 
     def _button_pressed_PreGameMultiple(self, unit: Unit):
         if unit.unit_id == self.correct:
             _logger.info("Correct")
-            unit.stop_all(datetime.now() +
+            unit.correct_pressed(datetime.now() +
                           timedelta(seconds=0.1) +
                           timedelta(seconds=unit.ws.latency)
                           )
 
+            self.previous_correct = set()
+            self.previous_correct.add(unit.unit_id)
+
             self._setup_game()
+            self.unit_list.remove(self.correct)
 
             self._next_correct()
             self._next_wrong()
@@ -286,8 +309,8 @@ class Game:
             )
         elif unit.unit_id == self.wrong:
             latency = max(unit.ws.latency for unit in self.pressed_units)
-            for pressed_unit in self.pressed_units:
-                pressed_unit.lose(
+            for unit in self.ACTIVE.values():
+                unit.lose(
                     datetime.now() +
                     timedelta(seconds=0.1) +
                     timedelta(seconds=latency)
@@ -296,28 +319,29 @@ class Game:
             assert (self._control_task is not None)
             self._control_task.cancel()
             self._control_task = asyncio.create_task(
-                self._control_WaitRelease())
+                self._control_Lose())
 
-            self.state = Game.STATES.WaitRelease
+            self.state = Game.STATES.Lose
         elif unit.unit_id == self.correct:
-            unit.correct_pressed(
-                datetime.now() +
-                timedelta(seconds=0.1) +
-                timedelta(seconds=unit.ws.latency)
-            )
-
-            self.previous_correct.add(unit.unit_id)
-
-            self._next_correct()
-            self._next_wrong()
-
             if not self.unit_list:
                 assert (self._control_task is not None)
                 self._control_task.cancel()
                 self._control_task = asyncio.create_task(
-                    self._control_WaitRelease())
+                    self._control_Win())
 
-                self.state = Game.STATES.WaitRelease
+                self.state = Game.STATES.Win
+            else:
+                unit.correct_pressed(
+                    datetime.now() +
+                    timedelta(seconds=0.1) +
+                    timedelta(seconds=unit.ws.latency)
+                )
+
+                self.previous_correct.add(unit.unit_id)
+
+                self._next_correct()
+                self._next_wrong()
+
 
     def _button_pressed_PlayingAllReleased(self, unit: Unit):
         if unit.unit_id in self.previous_correct:
@@ -340,29 +364,29 @@ class Game:
             assert (self._control_task is not None)
             self._control_task.cancel()
             self._control_task = asyncio.create_task(
-                self._control_WaitRelease())
+                self._control_Lose())
 
-            self.state = Game.STATES.WaitRelease
+            self.state = Game.STATES.Lose
         elif unit.unit_id == self.correct:
-            unit.correct_pressed(
-                datetime.now() +
-                timedelta(seconds=0.1) +
-                timedelta(seconds=unit.ws.latency)
-            )
-
             self.previous_correct.add(unit.unit_id)
-
-            self._next_correct()
-            self._next_wrong()
 
             if not self.unit_list:
                 assert (self._control_task is not None)
                 self._control_task.cancel()
                 self._control_task = asyncio.create_task(
-                    self._control_WaitRelease())
+                    self._control_Win())
 
-                self.state = Game.STATES.WaitRelease
+                self.state = Game.STATES.Win
             else:
+                unit.correct_pressed(
+                    datetime.now() +
+                    timedelta(seconds=0.1) +
+                    timedelta(seconds=unit.ws.latency)
+                )
+
+                self._next_correct()
+                self._next_wrong()
+
                 assert (self._control_task is not None)
                 self._control_task.cancel()
                 self._control_task = asyncio.create_task(
@@ -377,9 +401,17 @@ class Game:
                               timedelta(seconds=unit.ws.latency)
                               )
 
+    def _button_pressed_Lose(self, unit:Unit):
+        pass
+    _button_pressed_Win = _button_pressed_Lose
+
     def _button_released_PreGameSingle(self, unit: Unit):
         pass
     _button_released_PreGameMultiple = _button_released_PreGameSingle
+    _button_released_PlayingAllReleased = _button_released_PreGameSingle
+    _button_released_Lose = _button_released_PreGameSingle
+    _button_released_Win = _button_released_PreGameSingle
+
 
     def _button_released_Playing(self, unit: Unit):
         timestamp = datetime.now() + \
@@ -425,6 +457,7 @@ class Game:
         _logger.info(f"Game: Setup, Order: {self.unit_list}")
 
     def _next_correct(self):
+        _logger.info("Picking next correct")
         if self.unit_list:
             self.correct = self.unit_list.pop(0)
 
@@ -442,7 +475,10 @@ class Game:
             _logger.info(f"Game: Next correct, Unit: None")
 
     def _next_wrong(self):
+        _logger.info("Picking next wrong")
         if self.unit_list:
+            if self.wrong is not None and self.wrong != self.correct:
+                self.ACTIVE[self.wrong].stop_all(datetime.now())
             self.wrong = random.choice(self.unit_list)
             wrong_unit = self.ACTIVE[self.wrong]
             wrong_unit.wrong(
@@ -520,6 +556,14 @@ class Game:
 
     async def _control_PlayingAllReleased(self):
         await asyncio.sleep(15)
+        for unit in self.ACTIVE.values():
+            unit.lose(datetime.now())
+
+        await asyncio.sleep(4)
+
+        for unit in self.ACTIVE.values():
+            unit.stop_all(datetime.now())
+
         if not self.pressed_units:
             if len(self.ACTIVE) > 1:
                 assert (self._control_task is not None)
@@ -536,6 +580,58 @@ class Game:
 
                 self.state = Game.STATES.PreGameSingle
 
+    async def _control_Lose(self):
+        for unit in self.ACTIVE.values():
+            unit.lose(datetime.now())
+
+        await asyncio.sleep(5)
+
+        for unit in self.ACTIVE.values():
+            unit.stop_all(datetime.now())
+        
+        if len(self.ACTIVE) > 1:
+            assert (self._control_task is not None)
+            self._control_task.cancel()
+            self._control_task = asyncio.create_task(
+                self._control_PreGameMultiple())
+
+
+            self.previous_correct = set()
+            self.state = Game.STATES.PreGameMultiple
+        elif len(self.ACTIVE) == 1:
+            assert (self._control_task is not None)
+            self._control_task.cancel()
+            self._control_task = asyncio.create_task(
+                self._control_PreGameSingle())
+
+            self.previous_correct = set()
+            self.state = Game.STATES.PreGameSingle
+
+    async def _control_Win(self):
+        for unit in self.ACTIVE.values():
+            unit.win(datetime.now())
+
+        await asyncio.sleep(5)
+
+        for unit in self.ACTIVE.values():
+            unit.stop_all(datetime.now())
+        
+        if len(self.ACTIVE) > 1:
+            assert (self._control_task is not None)
+            self._control_task.cancel()
+            self._control_task = asyncio.create_task(
+                self._control_PreGameMultiple())
+
+            self.previous_correct = set()
+            self.state = Game.STATES.PreGameMultiple
+        elif len(self.ACTIVE) == 1:
+            assert (self._control_task is not None)
+            self._control_task.cancel()
+            self._control_task = asyncio.create_task(
+                self._control_PreGameSingle())
+
+            self.previous_correct = set()
+            self.state = Game.STATES.PreGameSingle
 
 class Gamemaster():
     def __init__(self, url: str, priority: int, gamemaster_urls: list[str], ssl: ssl.SSLContext):
