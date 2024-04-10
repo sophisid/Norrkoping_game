@@ -164,10 +164,7 @@ class SoundController(Controller):
         pattern = tuple(0.1*i for i in range(int(1/0.1+1)))
         pattern += pattern[-2::-1]
 
-        volume_loop = cycle(pattern)
-
         while self.state == Controller.STATES.RUNNING:
-            pygame.mixer.music.set_volume(next(volume_loop))
             await asyncio.sleep(0.1)
 
     async def stop(self):
