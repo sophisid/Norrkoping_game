@@ -79,7 +79,8 @@ class Unit:
     def correct_pressed(self, at: datetime):
         self.start_button_led((0, 200, 0), at)
         self.start_matrix((0, 128, 0), at)
-        self.play_sound(f"sounds/on_green_press/green-press{random.randint(1, 7)}.wav", at)
+        self.play_sound(
+            f"sounds/on_green_press/green-press{random.randint(1, 7)}.wav", at)
 
     def correct(self, at: datetime):
         self.start_button_led((0, 255, 0), at)
@@ -267,7 +268,7 @@ class Game:
 
     def _button_pressed_PreGameSingle(self, unit: Unit):
         unit.win(f"sounds/win/win{random.randint(1, 8)}.wav",
-            datetime.now() +
+                 datetime.now() +
                  timedelta(seconds=0.1) +
                  timedelta(seconds=unit.ws.latency)
                  )
@@ -282,9 +283,9 @@ class Game:
         if unit.unit_id == self.correct:
             _logger.info("Correct")
             unit.correct_pressed(datetime.now() +
-                          timedelta(seconds=0.1) +
-                          timedelta(seconds=unit.ws.latency)
-                          )
+                                 timedelta(seconds=0.1) +
+                                 timedelta(seconds=unit.ws.latency)
+                                 )
 
             self.previous_correct = set()
             self.previous_correct.add(unit.unit_id)
@@ -345,7 +346,6 @@ class Game:
 
                 self._next_correct()
                 self._next_wrong()
-
 
     def _button_pressed_PlayingAllReleased(self, unit: Unit):
         if unit.unit_id in self.previous_correct:
@@ -408,7 +408,7 @@ class Game:
                               timedelta(seconds=unit.ws.latency)
                               )
 
-    def _button_pressed_Lose(self, unit:Unit):
+    def _button_pressed_Lose(self, unit: Unit):
         pass
     _button_pressed_Win = _button_pressed_Lose
 
@@ -418,7 +418,6 @@ class Game:
     _button_released_PlayingAllReleased = _button_released_PreGameSingle
     _button_released_Lose = _button_released_PreGameSingle
     _button_released_Win = _button_released_PreGameSingle
-
 
     def _button_released_Playing(self, unit: Unit):
         timestamp = datetime.now() + \
@@ -564,7 +563,7 @@ class Game:
     async def _control_PlayingAllReleased(self):
         await asyncio.sleep(15)
 
-        lose_sound = random.randint(1,6)
+        lose_sound = random.randint(1, 6)
         for unit in self.ACTIVE.values():
             unit.lose(f"sounds/lose/lose{lose_sound}.wav", datetime.now())
 
@@ -590,7 +589,7 @@ class Game:
                 self.state = Game.STATES.PreGameSingle
 
     async def _control_Lose(self):
-        lose_sound = random.randint(1,6)
+        lose_sound = random.randint(1, 6)
         for unit in self.ACTIVE.values():
             unit.lose(
                 f"sounds/lose/lose{lose_sound}.wav",
@@ -606,7 +605,6 @@ class Game:
             self._control_task.cancel()
             self._control_task = asyncio.create_task(
                 self._control_PreGameMultiple())
-
 
             self.previous_correct = set()
             self.state = Game.STATES.PreGameMultiple
@@ -645,6 +643,7 @@ class Game:
 
             self.previous_correct = set()
             self.state = Game.STATES.PreGameSingle
+
 
 class Gamemaster():
     def __init__(self, url: str, priority: int, gamemaster_urls: list[str], ssl: ssl.SSLContext):
