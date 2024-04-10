@@ -66,20 +66,20 @@ class Unit:
         self.send({'type': 'SOUND', 'value': 'STOP',
                   'at': at.strftime("%Y-%m-%d %H:%M:%S.%f")})
 
-    def win(self, at: datetime):
+    def win(self, sound_path: str, at: datetime):
         self.start_button_led("colorscroll", at)
         self.start_matrix("colorscroll", at)
-        self.play_sound("win.wav", at)
+        self.play_sound(sound_path, at)
 
-    def lose(self, at: datetime):
+    def lose(self, sound_path: str, at: datetime):
         self.start_button_led("flash_red", at)
         self.start_matrix("swipe_red", at)
-        self.play_sound("lose.wav", at)
+        self.play_sound(sound_path, at)
 
     def correct_pressed(self, at: datetime):
         self.start_button_led((0, 200, 0), at)
         self.start_matrix((0, 128, 0), at)
-        self.play_sound("chirping.wav", at)
+        self.play_sound(f"sounds/on_green_press/green-press{random.randint(1, 7)}.wav", at)
 
     def correct(self, at: datetime):
         self.start_button_led((0, 255, 0), at)
@@ -266,7 +266,8 @@ class Game:
             self.state = Game.STATES.PreGameSingle
 
     def _button_pressed_PreGameSingle(self, unit: Unit):
-        unit.win(datetime.now() +
+        unit.win(f"sounds/win/win{random.randint(1, 8)}.wav",
+            datetime.now() +
                  timedelta(seconds=0.1) +
                  timedelta(seconds=unit.ws.latency)
                  )
@@ -309,8 +310,11 @@ class Game:
             )
         elif unit.unit_id == self.wrong:
             latency = max(unit.ws.latency for unit in self.pressed_units)
+
+            lose_sound = random.randint(1, 6)
             for unit in self.ACTIVE.values():
                 unit.lose(
+                    f"sounds/lose/lose{lose_sound}.wav",
                     datetime.now() +
                     timedelta(seconds=0.1) +
                     timedelta(seconds=latency)
@@ -354,8 +358,11 @@ class Game:
             self.state = Game.STATES.Playing
         elif unit.unit_id == self.wrong:
             latency = max(unit.ws.latency for unit in self.pressed_units)
+
+            lose_sound = random.randint(1, 6)
             for pressed_unit in self.pressed_units:
                 pressed_unit.lose(
+                    f"sounds/lose/lose{lose_sound}.wav",
                     datetime.now() +
                     timedelta(seconds=0.1) +
                     timedelta(seconds=latency)
@@ -556,8 +563,10 @@ class Game:
 
     async def _control_PlayingAllReleased(self):
         await asyncio.sleep(15)
+
+        lose_sound = random.randint(1,6)
         for unit in self.ACTIVE.values():
-            unit.lose(datetime.now())
+            unit.lose(f"sounds/lose/lose{lose_sound}.wav", datetime.now())
 
         await asyncio.sleep(4)
 
@@ -581,8 +590,11 @@ class Game:
                 self.state = Game.STATES.PreGameSingle
 
     async def _control_Lose(self):
+        lose_sound = random.randint(1,6)
         for unit in self.ACTIVE.values():
-            unit.lose(datetime.now())
+            unit.lose(
+                f"sounds/lose/lose{lose_sound}.wav",
+                datetime.now())
 
         await asyncio.sleep(5)
 
@@ -608,8 +620,9 @@ class Game:
             self.state = Game.STATES.PreGameSingle
 
     async def _control_Win(self):
+        win_sound = random.randint(1, 8)
         for unit in self.ACTIVE.values():
-            unit.win(datetime.now())
+            unit.win(f"sounds/win/win{win_sound}.wav", datetime.now())
 
         await asyncio.sleep(5)
 
