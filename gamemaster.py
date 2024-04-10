@@ -595,11 +595,12 @@ class Game:
                 f"sounds/lose/lose{lose_sound}.wav",
                 datetime.now())
 
-        await asyncio.sleep(5)
+        await asyncio.sleep(10)
 
         for unit in self.ACTIVE.values():
             unit.stop_all(datetime.now())
-        
+
+        await asyncio.sleep(10)
         if len(self.ACTIVE) > 1:
             assert (self._control_task is not None)
             self._control_task.cancel()
@@ -622,11 +623,13 @@ class Game:
         for unit in self.ACTIVE.values():
             unit.win(f"sounds/win/win{win_sound}.wav", datetime.now())
 
-        await asyncio.sleep(5)
+        await asyncio.sleep(10)
 
         for unit in self.ACTIVE.values():
             unit.stop_all(datetime.now())
-        
+
+        await asyncio.sleep(10)
+
         if len(self.ACTIVE) > 1:
             assert (self._control_task is not None)
             self._control_task.cancel()
