@@ -511,11 +511,11 @@ class Game:
         assert self.correct is not None
         correct_unit = self.ACTIVE[self.correct]
 
-        # correct_unit.correct(
-        #     datetime.now() +
-        #     timedelta(seconds=0.1) +
-        #     timedelta(seconds=correct_unit.ws.latency)
-        # )
+        correct_unit.correct(
+            datetime.now() +
+            timedelta(seconds=0.1) +
+            timedelta(seconds=correct_unit.ws.latency)
+        )
 
         _logger.info(f"Game: Next correct, Unit: {self.correct:#x}")
 
@@ -534,12 +534,12 @@ class Game:
 
             self.correct = next_unit
             correct_unit = self.ACTIVE[self.correct]
-            if len(self.ACTIVE) == 6:
-                correct_unit.correct(
-                    datetime.now() +
-                    timedelta(seconds=0.1) +
-                    timedelta(seconds=correct_unit.ws.latency)
-                )
+
+            correct_unit.correct(
+                datetime.now() +
+                timedelta(seconds=0.1) +
+                timedelta(seconds=correct_unit.ws.latency)
+            )
 
             _logger.info(f"Game: Next correct, Unit: {self.correct:#x}")
 
