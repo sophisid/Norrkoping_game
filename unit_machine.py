@@ -1,8 +1,9 @@
-import sys
-import os
+'''
+This program is designed to run on the Raspberry Pi.
+The program is used as a controller and interface to the low-level
+components of the game, i.e. the button, its backlight and the LED matrix.
+'''
 
-# Add the directory containing sensor_lib.py to the Python path
-sys.path.append('/home/pi/Team_Art_Sof')
 import argparse
 import asyncio
 from asyncio import PriorityQueue, Event
@@ -15,8 +16,8 @@ import ssl
 import sys
 import requests
 import websockets
-import math
-
+sys.path.append('/home/pi/Team_Art_Sof')
+import sensor_lib
 from websockets.client import connect
 from websockets.client import WebSocketClientProtocol
 from websockets.exceptions import ConnectionClosedError
@@ -32,12 +33,11 @@ from enum import IntEnum
 from typing import Optional
 from abc import ABC, abstractmethod
 
-import sensor_lib  # Import the sensor library
-
 LED_COUNT = 16      # Number of LED pixels.
 LED_PIN = 21        # GPIO pin connected to the pixels (21 uses PCM).
 
-RECHECK_INTERVAL = 1
+RECHECK_INTERVAL = 10
+
 
 class Controller(ABC):
     STATES = IntEnum('States', ['IDLE', 'RUNNING'])
@@ -144,22 +144,6 @@ class MatrixLEDController(Controller):
                 self.matrix.show()
 
                 await asyncio.sleep(0.1)
-        elif 'pulse' in args[0]: 
-            disval = args[0]
-            distance = float(disval[6:])
-            brightness = max(0, min(1,(2-distance)/2))
-            normalize_distance  = max(0,min(1, (distance-1)/(2-1)))
-            steps = int(50*(2*0.1-distance*0.1)*(distance*0.1))
-            max_sleep_time = 0.1
-            min_sleep_time = 0.01
-            sleep_time = max_sleep_time - (distance*0.01)
-            for i in range(steps):
-                factor = (1+math.sin(i*2*math.pi/steps))/2
-                scaled_brightness = int(255*brightness*factor)
-                for j in range(self.matrix.numPixels()):
-                    self.matrix.setPixelColorRGB(j,scaled_brightness,0,0)
-                self.matrix.show()
-            await asyncio.sleep(sleep_time)
 
     async def off(self):
         await self.stop()
@@ -181,6 +165,8 @@ class SoundController(Controller):
         pattern = tuple(0.1*i for i in range(int(1/0.1+1)))
         pattern += pattern[-2::-1]
 
+        volume_loop = cycle(pattern)
+
         while self.state == Controller.STATES.RUNNING:
             await asyncio.sleep(0.1)
 
@@ -193,6 +179,9 @@ class SoundController(Controller):
 
 async def button_led_control(led: RGBLED, queue: PriorityQueue[tuple[int, dict[str, str]]], exit: Event):
     async def execute(timestamp: int, command: dict[str, str], controller: ButtonLEDController):
+        # if datetime.now() < timestamp:
+        #     await asyncio.sleep((timestamp-datetime.now()).total_seconds())
+
         if command['value'] == "START":
             await controller.start(command['pattern'])
         elif command['value'] == "STOP":
@@ -218,6 +207,9 @@ async def button_led_control(led: RGBLED, queue: PriorityQueue[tuple[int, dict[s
 
 async def led_matrix_control(matrix: PixelStrip, queue: PriorityQueue[tuple[int, dict[str, str]]], exit: Event):
     async def execute(timestamp: int, command: dict[str, str], controller: MatrixLEDController):
+        # if datetime.now() < timestamp:
+        #     await asyncio.sleep((timestamp-datetime.now()).total_seconds())
+
         if command['value'] == "START":
             await controller.start(command['pattern'])
         elif command['value'] == "OFF":
@@ -231,6 +223,7 @@ async def led_matrix_control(matrix: PixelStrip, queue: PriorityQueue[tuple[int,
             if command['type'] == 'DIE':
                 await controller.stop()
                 break
+
             task = asyncio.create_task(execute(timestamp, command, controller))
 
             background_tasks.add(task)
@@ -240,6 +233,9 @@ async def led_matrix_control(matrix: PixelStrip, queue: PriorityQueue[tuple[int,
 
 async def sound_control(queue: PriorityQueue[tuple[int, dict[str, str]]], exit: Event):
     async def execute(timestamp: int, command: dict[str, str], controller: SoundController):
+        # if datetime.now() < timestamp:
+        #     await asyncio.sleep((timestamp-datetime.now()).total_seconds())
+
         if command['value'] == "START":
             await controller.start(command['filename'])
         elif command['value'] == "STOP":
@@ -287,6 +283,8 @@ async def recv_server(socket: WebSocketClientProtocol,
             break
 
         message: dict[str, str] = json.loads(msg)
+        # timestamp = datetime.strptime(message['at'], "%Y-%m-%d %H:%M:%S.%f")
+
         print(message)
         if message['type'] == "BUTTON_LED":
             await button_led_queue.put((i, message))
@@ -299,7 +297,7 @@ async def recv_server(socket: WebSocketClientProtocol,
             await button_led_queue.put((i, message))
             await matrix_queue.put((i, message))
             await sound_queue.put((i, message))
-        i += 1
+        i+=1
 
 
 async def send_server(socket: WebSocketClientProtocol, message: bytes):
@@ -344,52 +342,23 @@ def discover_gamemaster(gamemaster_urls: list[str], ca_certificate: str):
     return gamemaster
 
 
-# Function to control the sensor, read data and adjust brightness
-async def sensor_control(sensor, queue: PriorityQueue[tuple[int, dict[str, str]]], exit: Event, matrix:PixelStrip):
-    distances_with_accuracy = []  # List to store distances along with their accuracy
-
-    async def execute(distance: float, matrix:PixelStrip): 
-        command = {'value': 'START', 'pattern':"pulse_"+distance}
-        #command2 = {'value': 'STOP'}
-        await MatrixLEDController(matrix).start(command['pattern'])
-        await MatrixLEDController(matrix).off()
-        '''await queue.put((time.time(), command))'''
-    while not exit.is_set() :
-        if sensor._s.in_waiting > 0:
-            data = sensor._s.readline().decode('utf-8', errors='ignore').strip()
-            if data.startswith('$JYRPO'):
-                parts = data.split(',')
-                print(parts)
-                if len(parts) >= 6:
-                    distance = parts[3]  # The 4th part is the distance
-                    accuracy = float(parts[5])  # The 6th part is the accuracy
-                    distances_with_accuracy.append((distance, accuracy))
-                    if distances_with_accuracy:
-                        best_distance, best_accuracy = max(distances_with_accuracy, key=lambda x: x[1])
-                        print(f"Best Distance: {best_distance}, Accuracy: {best_accuracy}")
-                        await execute(distance, matrix)  # Send maximum distance to the queue
-                    distances_with_accuracy.clear()
-            else:
-                print("Error reading from sensor")
-        await asyncio.sleep(0.09)
-
 async def main(args: list[str]):
     ''' The main function for the unit '''
+
     options = parse_arguments(args)
-    i = 0
-    range=10.0
+    i =0
     # Initialize the hardware interface
     button: Button = Button(26)
     button_led: RGBLED = RGBLED(17, 27, 22)
     led_matrix: PixelStrip = PixelStrip(LED_COUNT, LED_PIN)
-    sensor = sensor_lib.DFRobot_mmWave_Radar('/dev/serial0')  # Initialize the sensor
-    sensor.sensorStart()
+
     button_led_queue: PriorityQueue[tuple[int,
                                           dict[str, str]]] = asyncio.PriorityQueue()
     led_matrix_queue: PriorityQueue[tuple[int,
                                           dict[str, str]]] = asyncio.PriorityQueue()
     sound_queue: PriorityQueue[tuple[int,
                                      dict[str, str]]] = asyncio.PriorityQueue()
+
     exit_event = asyncio.Event()
 
     led_matrix.begin()
@@ -413,14 +382,6 @@ async def main(args: list[str]):
         sound_control(
             sound_queue,
             exit_event))
-    sensor_task = asyncio.create_task(  # Add a task for sensor control
-        sensor_control(
-            sensor,
-            led_matrix_queue,  # Send sensor events to the button LED queue
-            exit_event,
-            led_matrix))
-    
-    #await asyncio.gather(button_led_task, led_matrix_task, sound_task, sensor_task)
 
     while not exit_event.is_set():
         gamemaster_url = discover_gamemaster(
@@ -439,8 +400,7 @@ async def main(args: list[str]):
                                       exit_event,
                                       button_led_queue,
                                       led_matrix_queue,
-                                      sound_queue,
-                                      )
+                                      sound_queue)
                 except ConnectionClosedError:
                     pass
                 else:
@@ -459,9 +419,9 @@ async def main(args: list[str]):
             await asyncio.sleep(RECHECK_INTERVAL)
 
             stop_blink = {'type': 'BUTTON_LED', 'value': 'STOP'}
-
+            
             await button_led_queue.put((i, stop_blink))
-            i += 1
+            i+=1
 
 if __name__ == "__main__":
     asyncio.run(main(sys.argv[1:]))

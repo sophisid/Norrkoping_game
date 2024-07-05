@@ -15,6 +15,7 @@ import ssl
 import sys
 import requests
 import websockets
+import time
 import math
 
 from websockets.client import connect
@@ -37,7 +38,9 @@ import sensor_lib  # Import the sensor library
 LED_COUNT = 16      # Number of LED pixels.
 LED_PIN = 21        # GPIO pin connected to the pixels (21 uses PCM).
 
-RECHECK_INTERVAL = 1
+RECHECK_INTERVAL = 10
+button_pressed_state = False
+
 
 class Controller(ABC):
     STATES = IntEnum('States', ['IDLE', 'RUNNING'])
@@ -115,6 +118,7 @@ class MatrixLEDController(Controller):
         self.matrix = matrix
 
     async def _run(self, *args):
+        print("eiamia stin run")
         if isinstance(args[0], list):
             for i in range(self.matrix.numPixels()):
                 self.matrix.setPixelColorRGB(i, *args[0])
@@ -145,21 +149,22 @@ class MatrixLEDController(Controller):
 
                 await asyncio.sleep(0.1)
         elif 'pulse' in args[0]: 
+            print("allallalal")
+            # na kanw slice to time
             disval = args[0]
-            distance = float(disval[6:])
-            brightness = max(0, min(1,(2-distance)/2))
-            normalize_distance  = max(0,min(1, (distance-1)/(2-1)))
-            steps = int(50*(2*0.1-distance*0.1)*(distance*0.1))
-            max_sleep_time = 0.1
-            min_sleep_time = 0.01
-            sleep_time = max_sleep_time - (distance*0.01)
-            for i in range(steps):
-                factor = (1+math.sin(i*2*math.pi/steps))/2
-                scaled_brightness = int(255*brightness*factor)
-                for j in range(self.matrix.numPixels()):
-                    self.matrix.setPixelColorRGB(j,scaled_brightness,0,0)
+            distance = disval[6:]
+            color = Color.rgb[0]*255
+            while self.state == Controller.STATES.RUNNING:
+                for i in range(self.matrix.numPixels()):
+                    self.matrix.setPixelColorRGB(
+                        i,
+                        int(color.rgb[0]*255),
+                        int(color.rgb[1]*255),
+                        int(color.rgb[2]*255))
                 self.matrix.show()
-            await asyncio.sleep(sleep_time)
+
+                # color += Hue(deg=3.6)
+                await asyncio.sleep(0.04)
 
     async def off(self):
         await self.stop()
@@ -231,7 +236,9 @@ async def led_matrix_control(matrix: PixelStrip, queue: PriorityQueue[tuple[int,
             if command['type'] == 'DIE':
                 await controller.stop()
                 break
+            print(command)
             task = asyncio.create_task(execute(timestamp, command, controller))
+            print(task)
 
             background_tasks.add(task)
 
@@ -307,6 +314,9 @@ async def send_server(socket: WebSocketClientProtocol, message: bytes):
 
 
 def button_pressed(ws: WebSocketClientProtocol, eventloop: asyncio.AbstractEventLoop):
+    print("lalallla")
+    global button_pressed_state
+    button_pressed_state = True 
     message = json.dumps({'type': "BUTTON_PRESSED"}).encode()
     asyncio.run_coroutine_threadsafe(send_server(ws, message), eventloop)
 
@@ -345,36 +355,74 @@ def discover_gamemaster(gamemaster_urls: list[str], ca_certificate: str):
 
 
 # Function to control the sensor, read data and adjust brightness
-async def sensor_control(sensor, queue: PriorityQueue[tuple[int, dict[str, str]]], exit: Event, matrix:PixelStrip):
+async def sensor_control(sensor, queue: PriorityQueue[tuple[int, dict[str, str]]], exit: Event,maxDis: float):
     distances_with_accuracy = []  # List to store distances along with their accuracy
 
-    async def execute(distance: float, matrix:PixelStrip): 
+    async def execute(queue: PriorityQueue[tuple[int, dict[str, str]]], timestamp: int, distance: float): 
+        #na kollisw distance sto string
         command = {'value': 'START', 'pattern':"pulse_"+distance}
-        #command2 = {'value': 'STOP'}
-        await MatrixLEDController(matrix).start(command['pattern'])
-        await MatrixLEDController(matrix).off()
-        '''await queue.put((time.time(), command))'''
-    while not exit.is_set() :
+        await queue.put((timestamp, command))
+
+    '''def pulse_effect(brightness: float, distance: float, maxdis: float):
+        normalized_distance = max(0, min(1, (distance - 1) / (2 - 1)))
+        # Create a pulsing effect by changing the brightness in a sine wave pattern
+        steps = int(50*(maxdis*0.1-distance*0.1)*(distance*0.1))  # Number of steps in one pulse cycle
+        max_sleep_time = 0.1  # Maximum sleep time (slowest pulse)
+        min_sleep_time = 0.01  # Minimum sleep time (fastest pulse)
+        #sleep_time = max_sleep_time - (normalized_distance * (max_sleep_time - min_sleep_time))
+        sleep_time= max_sleep_time-(distance*0.01)
+
+        for i in range(steps):
+            factor = (1 + math.sin(i * 2 * math.pi / steps)) / 2  # Create a sine wave factor
+            scaled_brightness = int(255 * brightness * factor)
+            
+            for j in range(matrix.numPixels()):
+                matrix.setPixelColorRGB(j, scaled_brightness, 0, 0)
+            matrix.show()
+        await asyncio.sleep(sleep_time)  # Adjust sleep time to create a distance-dependent pulse frequency
+    '''
+
+    while not exit.is_set():
         if sensor._s.in_waiting > 0:
             data = sensor._s.readline().decode('utf-8', errors='ignore').strip()
             if data.startswith('$JYRPO'):
                 parts = data.split(',')
                 print(parts)
                 if len(parts) >= 6:
-                    distance = parts[3]  # The 4th part is the distance
-                    accuracy = float(parts[5])  # The 6th part is the accuracy
+                    detected_items = int(parts[1])
+                    item_id = int(parts[2])
+                    distance = float(parts[3])  # The 4th part is the distance
+                    accuracy = float(parts[5])  # The 6th part is the accuracy                        
+                    timestamp = int(time.time())  # Use the current timestamp
                     distances_with_accuracy.append((distance, accuracy))
                     if distances_with_accuracy:
-                        best_distance, best_accuracy = max(distances_with_accuracy, key=lambda x: x[1])
+                        best_distance, best_accuracy = min(distances_with_accuracy, key=lambda x: x[0])
                         print(f"Best Distance: {best_distance}, Accuracy: {best_accuracy}")
-                        await execute(distance, matrix)  # Send maximum distance to the queue
-                    distances_with_accuracy.clear()
+                        await execute(queue,-1, distance)  # Send maximum distance to the queue
+                        distances_with_accuracy.clear()
+
+                #    # Store the distance and accuracy
+                #    distances_with_accuracy.append((distance, accuracy))
+
+                #    current_time = time.time()
+                #    if current_time - last_print_time >= 2:
+                        # Find the distance with the best accuracy
+                #        if distances_with_accuracy:
+                #            best_distance, best_accuracy = min(distances_with_accuracy, key=lambda x: x[0])
+                #            print(f"Best Distance: {best_distance}, Accuracy: {best_accuracy}")
+                #            # Apply pulsing effect based on the best distance
+                #            brightness = max(0, min(1, (maxDis - best_distance) / maxDis))  # Normalize distance to brightness
+                #            pulse_effect(brightness, best_distance,maxDis)
+                #            distances_with_accuracy.clear()  # Clear the list after processing
+
+                #        last_print_time = current_time
             else:
                 print("Error reading from sensor")
-        await asyncio.sleep(0.09)
+        await asyncio.sleep(0.1)
 
 async def main(args: list[str]):
     ''' The main function for the unit '''
+
     options = parse_arguments(args)
     i = 0
     range=10.0
@@ -383,6 +431,13 @@ async def main(args: list[str]):
     button_led: RGBLED = RGBLED(17, 27, 22)
     led_matrix: PixelStrip = PixelStrip(LED_COUNT, LED_PIN)
     sensor = sensor_lib.DFRobot_mmWave_Radar('/dev/serial0')  # Initialize the sensor
+    sensor.sensorStop()
+    data = sensor._s.readline().decode('utf-8', errors='ignore').strip()
+    if data.startswith('Response'):
+        parts = data.split(' ')
+        print(parts)
+        if len(parts) == 3:
+            range = parts[2]; 
     sensor.sensorStart()
     button_led_queue: PriorityQueue[tuple[int,
                                           dict[str, str]]] = asyncio.PriorityQueue()
@@ -416,9 +471,9 @@ async def main(args: list[str]):
     sensor_task = asyncio.create_task(  # Add a task for sensor control
         sensor_control(
             sensor,
-            led_matrix_queue,  # Send sensor events to the button LED queue
+            led_matrix_queue,  # Send sensor events to the button LED queue as an example
             exit_event,
-            led_matrix))
+            range))
     
     #await asyncio.gather(button_led_task, led_matrix_task, sound_task, sensor_task)
 
@@ -426,6 +481,7 @@ async def main(args: list[str]):
         gamemaster_url = discover_gamemaster(
             options.gamemaster_url, options.ca_certificate)
         if gamemaster_url:
+            print('lalalallala')
             async with connect(f"wss://{gamemaster_url}:8001", ssl=ssl_context) as socket:
                 loop.add_signal_handler(
                     signal.SIGTERM, loop.create_task, socket.close())
@@ -465,3 +521,5 @@ async def main(args: list[str]):
 
 if __name__ == "__main__":
     asyncio.run(main(sys.argv[1:]))
+
+

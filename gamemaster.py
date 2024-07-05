@@ -29,6 +29,7 @@ class Unit:
         self.ws = ws
         self.button_pressed = False
         self.unit_id = unit_id
+        self.distance = 0.0
 
         self.queue = asyncio.Queue()
 
@@ -65,6 +66,10 @@ class Unit:
     def stop_sound(self, at: datetime):
         self.send({'type': 'SOUND', 'value': 'STOP',
                   'at': at.strftime("%Y-%m-%d %H:%M:%S.%f")})
+        
+    def update_distance(self, distance: float, at:datetime):
+        self.send({'type':'DISTANCE','value':distance,
+                   'at': at.strftime("%Y-%m-%d %H:%M:%S.%f")})
 
     def win(self, sound_path: str, at: datetime):
         self.start_button_led("colorscroll", at)
@@ -194,6 +199,11 @@ class Game:
 
             self._button_released_callbacks[self.state](unit)
 
+    def update_unit_distance(self, unit_id: int, distance: float):
+        if unit_id in self.ACTIVE:
+            self.ACTIVE[unit_id].update_distance(distance)
+            _logger.info(f"Updated distance for unit {unit_id:#x} to {distance}")
+
     def register(self, unit_id: int, unit: Unit):
         _logger.info(f"Event: Unit Register, Unit: {unit}")
 
@@ -207,6 +217,8 @@ class Game:
             timedelta(seconds=unit.ws.latency)
 
         unit.stop_all(timestamp)
+        simulated_distance = random.uniform(1.0,10.0)
+        self.update_unit_distance(unit_id, simulated_distance)
 
     def unregister(self, unit_id: int):
         _logger.info(f"Event: Unit Unregister, Unit: {unit_id:#x}")
@@ -457,7 +469,7 @@ class Game:
                 self.state = Game.STATES.PreGameSingle
 
     def _setup_game(self):
-        self.unit_list = list(self.ACTIVE.keys())
+        self.unit_list = sorted(self.ACTIVE.keys(), key=lambda uid: self.ACTIVE[uid].distance, reverse=True)
         random.shuffle(self.unit_list)
 
         _logger.info(f"Game: Setup, Order: {self.unit_list}")
@@ -764,6 +776,10 @@ async def handler(websocket: WebSocketServerProtocol, game: Game):
                 print("Handle button release")
                 if unit_id is not None:
                     game.button_released(unit_id)
+            elif decoded['type'] == 'DISTANCE_UPDATE':
+                if unit_id is not None:
+                    distance = float(decoded['distance'])
+                    game.update_unit_distance(unit_id, distance)
             elif decoded['type'] == 'UNREGISTER':
                 if unit_id is not None:
                     game.unregister(unit_id)
